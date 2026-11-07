@@ -15,7 +15,13 @@ A kit is a folder:
   .backups/
     kit.bak1.json      # newest previous manifest
     kit.bak2.json
-  quarantine-reason.txt  # only after corruption handling
+```
+
+Structurally corrupt manifests are moved out of the library:
+
+```text
+quarantine/<kit>-<timestamp>/
+  quarantine-reason.txt
 ```
 
 All sample paths in `kit.json` are relative to the kit folder and use forward
@@ -122,5 +128,7 @@ never silently downgraded.
 - The previous manifest is copied to `.backups/kit.bak1.json`; older backups
   rotate up to `kit.bak5.json`.
 - Autosave debounces edits for one second, well inside the two-second budget.
-- A manifest that fails to parse is moved to `quarantine/` with a reason file
-  instead of crashing the library.
+- A manifest that is structurally corrupt is moved to
+  `quarantine/<kit>-<timestamp>/` with a reason file instead of crashing the
+  library. A document from a newer `format_version` is refused in place and is
+  not quarantined, so a newer build can still open it.
