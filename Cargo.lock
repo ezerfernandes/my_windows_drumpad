@@ -770,6 +770,7 @@ name = "drumpad-audio"
 version = "0.1.0"
 dependencies = [
  "drumpad-engine",
+ "drumpad-input",
  "drumpad-model",
  "drumpad-samples",
  "serde",
@@ -838,6 +839,7 @@ name = "drumpad-tools"
 version = "0.1.0"
 dependencies = [
  "criterion",
+ "drumpad-app",
  "drumpad-engine",
  "drumpad-input",
  "drumpad-model",

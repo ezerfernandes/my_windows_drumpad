@@ -67,6 +67,25 @@ fn default_device_opens_and_renders_shared() {
 
 #[test]
 #[ignore = "requires a Windows audio render device"]
+fn mvp_runtime_starts_and_plays_the_demo_kit() {
+    let mut runtime = drumpad_audio::MvpAudioRuntime::start().expect("start MVP runtime");
+    println!("MVP format: {:#?}", runtime.format());
+    println!("pad names: {:#?}", runtime.pad_names());
+    runtime.trigger(0, 100);
+    std::thread::sleep(Duration::from_millis(300));
+    let snapshot = runtime.snapshot().expect("snapshot");
+    let engine = runtime.engine_snapshot().expect("engine snapshot");
+    println!("MVP stream: {snapshot:#?}");
+    println!("MVP engine: {engine:#?}");
+    assert!(snapshot.callbacks > 0, "stream never ran");
+    assert!(engine.meter.peak_left > 0.0 || engine.active_voices > 0);
+    runtime.panic();
+    std::thread::sleep(Duration::from_millis(200));
+    runtime.stop();
+}
+
+#[test]
+#[ignore = "requires a Windows audio render device"]
 fn start_stop_one_hundred_times_on_a_real_device() {
     let backend = WindowsBackend;
     for _ in 0..100 {

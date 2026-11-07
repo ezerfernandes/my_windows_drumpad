@@ -8,6 +8,7 @@ pub mod backend;
 pub mod devices;
 pub mod diagnostics;
 pub mod priority;
+pub mod runtime;
 pub mod settings;
 pub mod stream;
 pub mod system;
@@ -16,6 +17,7 @@ pub use backend::{AudioBackend, AudioCallback, FakeBackend};
 pub use devices::{DeviceInfo, DeviceProvider, DeviceState};
 pub use diagnostics::{StreamDiagnostics, StreamSnapshot, StreamState};
 pub use priority::boost_audio_thread;
+pub use runtime::MvpAudioRuntime;
 pub use settings::{AudioSettings, SettingsLoad};
 pub use stream::{RenderStream, SampleFormat, ShareMode, StreamConfig, StreamFormat};
 pub use system::{AudioSystem, AudioSystemEvent, AudioSystemState, CallbackFactory};
@@ -44,6 +46,8 @@ pub enum AudioError {
     Backend(String),
     /// Local persistence or I/O failed.
     Io(String),
+    /// The demo kit or MVP runtime could not be prepared.
+    Runtime(String),
     /// The stream is already stopped.
     StreamClosed,
 }
@@ -59,6 +63,7 @@ impl fmt::Display for AudioError {
             AudioError::DeviceLost(id) => write!(f, "audio device lost: {id}"),
             AudioError::Backend(message) => write!(f, "audio backend error: {message}"),
             AudioError::Io(message) => write!(f, "audio settings I/O error: {message}"),
+            AudioError::Runtime(message) => write!(f, "audio runtime error: {message}"),
             AudioError::StreamClosed => write!(f, "audio stream is already closed"),
         }
     }
