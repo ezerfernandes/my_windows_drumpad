@@ -2,8 +2,9 @@
 //!
 //! Startup resolves the app directory layout (portable or installed), creates
 //! it on first launch, loads or writes the settings document, starts local
-//! logging, and installs crash capture. The winit/egui shell is owned by the UI
-//! pair and is wired in at the end of [`run`] once it lands.
+//! logging, installs crash capture, and hands the resolved paths and settings
+//! to the winit/egui app shell. The shell owns the window, audio, input, and UI
+//! wiring; this crate only composes the foundation.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
@@ -18,8 +19,8 @@ fn main() -> ExitCode {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             // A GUI release has no attached console; the startup failure is
-            // still visible in a terminal when one exists, and future UI work
-            // turns this into an error dialog with a concrete next action.
+            // still visible in the local log and, when a console exists, on
+            // stderr. The app shell owns the in-window error dialog.
             eprintln!("Drumpad failed to start: {error}");
             ExitCode::FAILURE
         }
@@ -33,6 +34,7 @@ fn run() -> Result<()> {
     let settings_store = SettingsStore::new(paths.settings_path());
     let settings = settings_store.load_or_create()?;
 
+    // Keep the guard for the whole run: dropping it flushes pending log lines.
     let _logging = logging::init(&paths, LoggingOptions::from(&settings.logging))?;
     logging::install_crash_hook(paths.crash_dir().to_path_buf(), env!("CARGO_PKG_VERSION"));
 
@@ -43,10 +45,10 @@ fn run() -> Result<()> {
         "Drumpad starting"
     );
 
-    // E08-T01 (UI pair) owns the app shell. It receives the resolved paths and
-    // settings here so the shell never re-implements directory or settings
-    // resolution. Until that lands, startup verifies the foundation and exits.
-    tracing::info!("foundation startup complete; waiting for the app shell");
+    // The shell receives the already-resolved paths and settings so it never
+    // re-implements directory, settings, or logging setup.
+    drumpad_app::app::run(drumpad_app::app::AppOptions::new(paths, settings))?;
 
+    tracing::info!("Drumpad closed cleanly");
     Ok(())
 }
