@@ -789,7 +789,7 @@ impl AppShell {
                 }
             }
             KitRequest::Save(ui_id) => {
-                let outcome = self.kits.as_mut().expect("checked above").save_active();
+                let outcome = self.kits.as_mut().expect("checked above").save_ui(ui_id.0);
                 match outcome {
                     Ok(()) => {
                         self.state.kits.set_dirty(false);

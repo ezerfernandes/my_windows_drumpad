@@ -10,12 +10,8 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use drumpad_model::kit::{
-    ContentHash, Kit, KitId, KitLibrary, KitSummary as ModelKitSummary, Layer, LayerId, PAD_COUNT,
-    Pad, RelativeSamplePath, SampleRef, VelocityRange,
-};
-use drumpad_samples::decode::decode_file;
-use drumpad_samples::import::{ImportLimits, scan_dropped_paths};
+use drumpad_model::kit::{Kit, KitId, KitLibrary, KitSummary as ModelKitSummary};
+use drumpad_samples::{ImportedKit, import_folder_into_new_kit};
 
 use crate::state::kit::KitBrowser;
 
@@ -50,13 +46,21 @@ impl KitService {
     pub fn open(root: PathBuf) -> Result<Self, String> {
         let mut library = KitLibrary::open(root).map_err(|error| error.to_string())?;
         let summaries = library.list().map_err(|error| error.to_string())?;
-        let has_demo = summaries
-            .iter()
-            .any(|summary| summary.name.contains("Demo"));
-        if !has_demo && summaries.len() <= 1 {
+        let has_demo = summaries.iter().any(is_demo);
+        // Install the demo only while the library still holds nothing but the
+        // silent placeholder that `KitLibrary::open` creates. An existing user
+        // kit is never replaced, and deleting the demo does not bring it back
+        // on the next launch.
+        let only_silent_default =
+            summaries.len() == 1 && summaries[0].name == "Default Kit" && !is_demo(&summaries[0]);
+        if !has_demo && only_silent_default {
             library
                 .install_demo_kit()
                 .map_err(|error| format!("could not install the demo kit: {error}"))?;
+            // Drop the placeholder row so the catalogue opens on the demo.
+            if let Some(default) = summaries.first() {
+                let _ = library.delete(default.id);
+            }
         }
 
         let mut service = Self {
@@ -106,9 +110,6 @@ impl KitService {
             .get(&ui_id)
             .copied()
             .ok_or_else(|| "kit is no longer in the library".to_owned())?;
-        self.library
-            .set_active(model_id)
-            .map_err(|error| error.to_string())?;
         let kit = self
             .library
             .load(model_id)
@@ -116,6 +117,11 @@ impl KitService {
         let dir = self
             .library
             .kit_dir(model_id)
+            .map_err(|error| error.to_string())?;
+        // Persist the active choice only after the kit and its folder loaded,
+        // so a broken kit cannot poison the next launch.
+        self.library
+            .set_active(model_id)
             .map_err(|error| error.to_string())?;
         self.active = Some(kit.clone());
         self.active_dir = Some(dir.clone());
@@ -166,6 +172,32 @@ impl KitService {
         self.library.save(kit).map_err(|error| error.to_string())
     }
 
+    /// Persist the kit selected in the UI.
+    ///
+    /// The active kit may hold unsaved edits in memory; other kits are saved
+    /// from their on-disk form, which makes `Save(id)` a no-op rather than
+    /// saving the wrong kit.
+    pub fn save_ui(&mut self, ui_id: u64) -> Result<(), String> {
+        let model_id = self.model_id(ui_id)?;
+        let is_active = self.active.as_ref().is_some_and(|kit| kit.id == model_id);
+        let mut kit = if is_active {
+            self.active
+                .clone()
+                .ok_or_else(|| "no kit is loaded".to_owned())?
+        } else {
+            self.library
+                .load(model_id)
+                .map_err(|error| error.to_string())?
+        };
+        self.library
+            .save(&mut kit)
+            .map_err(|error| error.to_string())?;
+        if is_active {
+            self.active = Some(kit);
+        }
+        Ok(())
+    }
+
     /// Rename a kit selected in the UI.
     pub fn rename_ui(&mut self, ui_id: u64, name: &str) -> Result<(), String> {
         let model_id = self.model_id(ui_id)?;
@@ -211,95 +243,15 @@ impl KitService {
 
     /// Import every supported file in `folder` into a new kit named `name`.
     pub fn import_folder(&mut self, name: &str, folder: &Path) -> Result<ImportOutcome, String> {
-        if !folder.is_dir() {
-            return Err(format!("{} is not a folder", folder.display()));
-        }
-        let scan = scan_dropped_paths(&[folder.to_path_buf()], ImportLimits::default());
-        if scan.accepted.is_empty() {
-            return Err(format!(
-                "No supported audio files in {}. {}",
-                folder.display(),
-                scan.summary()
-            ));
-        }
-
-        let mut kit = self
-            .library
-            .create(name)
+        let imported: ImportedKit = import_folder_into_new_kit(&mut self.library, name, folder)
             .map_err(|error| error.to_string())?;
-        let dir = self
-            .library
-            .kit_dir(kit.id)
-            .map_err(|error| error.to_string())?;
-        let samples_dir = dir.join("samples");
-        std::fs::create_dir_all(&samples_dir)
-            .map_err(|error| format!("could not create {}: {error}", samples_dir.display()))?;
-
-        let mut imported = 0usize;
-        let mut skipped = 0usize;
-        for (index, candidate) in scan.accepted.iter().enumerate() {
-            if index >= PAD_COUNT {
-                skipped += 1;
-                continue;
-            }
-            let original = candidate
-                .path
-                .file_name()
-                .map(|name| name.to_string_lossy().into_owned())
-                .unwrap_or_else(|| format!("sample-{}", index + 1));
-            let file_name = format!("{:02}_{}", index + 1, original);
-            let target = samples_dir.join(&file_name);
-            std::fs::copy(&candidate.path, &target).map_err(|error| {
-                format!(
-                    "could not copy {} to {}: {error}",
-                    candidate.path.display(),
-                    target.display()
-                )
-            })?;
-
-            let decoded = decode_file(&candidate.path).map_err(|error| {
-                format!("could not decode {}: {error}", candidate.path.display())
-            })?;
-            let hash = ContentHash::of_pcm(
-                decoded.audio.sample_rate,
-                decoded.audio.channels,
-                &decoded.audio.samples,
-            );
-            let relative = RelativeSamplePath::new(format!("samples/{file_name}"))
-                .map_err(|error| error.to_string())?;
-            let layer = Layer {
-                id: LayerId(1),
-                sample: Some(SampleRef {
-                    path: relative,
-                    hash: Some(hash),
-                    original_name: Some(original.clone()),
-                }),
-                velocity: VelocityRange::new(1, 127).map_err(|error| error.to_string())?,
-                gain_db: 0.0,
-                tune_cents: 0.0,
-                loop_points: None,
-            };
-            let pad: &mut Pad = &mut kit.pads[index];
-            pad.name = Some(
-                Path::new(&original)
-                    .file_stem()
-                    .map(|stem| stem.to_string_lossy().into_owned())
-                    .unwrap_or_else(|| format!("Pad {}", index + 1)),
-            );
-            pad.layers = vec![layer];
-            imported += 1;
-        }
-
         self.library
-            .save(&mut kit)
-            .map_err(|error| format!("could not save the imported kit: {error}"))?;
-        self.library
-            .set_active(kit.id)
+            .set_active(imported.kit.id)
             .map_err(|error| error.to_string())?;
-        self.active = Some(kit.clone());
-        self.active_dir = Some(dir.clone());
+        self.active = Some(imported.kit.clone());
+        self.active_dir = Some(imported.kit_dir.clone());
 
-        let rejected: Vec<String> = scan
+        let rejected: Vec<String> = imported
             .rejected
             .iter()
             .map(|file| {
@@ -315,16 +267,16 @@ impl KitService {
             .collect();
         let summary = format!(
             "{} imported, {} rejected, {} skipped (16 pad limit)",
-            imported,
+            imported.imported,
             rejected.len(),
-            skipped
+            imported.skipped
         );
         Ok(ImportOutcome {
-            kit,
-            kit_dir: dir,
-            imported,
+            kit: imported.kit,
+            kit_dir: imported.kit_dir,
+            imported: imported.imported,
             rejected,
-            skipped,
+            skipped: imported.skipped,
             summary,
         })
     }
@@ -367,6 +319,70 @@ mod tests {
                 .any(|kit| kit.name == active.metadata.name)
         );
         assert_eq!(browser.active_name(), Some(active.metadata.name.as_str()));
+        assert!(
+            !browser.kits().iter().any(|kit| kit.name == "Default Kit"),
+            "the silent placeholder should be removed after the demo installs"
+        );
+    }
+
+    #[test]
+    fn a_user_kit_stays_active_after_the_demo_is_deleted() {
+        let temp = tempfile::tempdir().expect("temp");
+        let root = temp.path().join("kits");
+        let mut service = KitService::open(root.clone()).expect("library");
+        let (user, _) = service.create("User Kit").expect("create");
+        let demo = service
+            .library
+            .list()
+            .expect("list")
+            .into_iter()
+            .find(|row| row.name.contains("Demo"))
+            .expect("demo installed");
+        service.library.delete(demo.id).expect("delete demo");
+        drop(service);
+
+        let reopened = KitService::open(root).expect("reopen");
+        assert_eq!(reopened.active().expect("active").id, user.id);
+        let names: Vec<String> = reopened
+            .library
+            .list()
+            .expect("list")
+            .into_iter()
+            .map(|row| row.name)
+            .collect();
+        assert!(
+            !names.iter().any(|name| name.contains("Demo")),
+            "deleting the demo must not reinstall it on the next launch"
+        );
+    }
+
+    #[test]
+    fn saving_by_id_never_replaces_the_active_kit() {
+        let (_temp, mut service, _browser) = service();
+        let (_first, _) = service.create("First").expect("create");
+        let (second, _) = service.create("Second").expect("create");
+        let mut browser = KitBrowser::new();
+        service.refresh(&mut browser).expect("refresh");
+
+        let first_ui = browser
+            .kits()
+            .iter()
+            .find(|row| row.name == "First")
+            .expect("first row")
+            .id
+            .0;
+        service.save_ui(first_ui).expect("save first");
+        assert_eq!(service.active().expect("active").id, second.id);
+
+        let second_ui = browser
+            .kits()
+            .iter()
+            .find(|row| row.name == "Second")
+            .expect("second row")
+            .id
+            .0;
+        service.save_ui(second_ui).expect("save second");
+        assert_eq!(service.active().expect("active").id, second.id);
     }
 
     #[test]
@@ -422,7 +438,7 @@ mod tests {
         fs::create_dir_all(&empty).expect("dir");
         let mut service = KitService::open(temp.path().join("kits")).expect("library");
         let error = service.import_folder("Nope", &empty).expect_err("empty");
-        assert!(error.contains("No supported audio files"));
+        assert!(error.contains("no valid audio files"));
     }
 
     #[test]
