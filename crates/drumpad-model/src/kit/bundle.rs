@@ -396,8 +396,7 @@ pub fn export_active_kit(
     };
     let kit_dir = library
         .kit_dir(kit.id)
-        .map_err(|error| BundleError::InvalidBundle(error.to_string()))?
-        .ok_or_else(|| BundleError::InvalidBundle("active kit folder is missing".into()))?;
+        .map_err(|error| BundleError::InvalidBundle(error.to_string()))?;
     export_kit_folder(&kit, &kit_dir, dest_dir)
 }
 

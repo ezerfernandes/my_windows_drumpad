@@ -117,7 +117,7 @@ fn library_round_trips_a_kit_and_its_backups() {
     let loaded = library.load(kit.id).unwrap();
     assert_eq!(loaded, kit);
 
-    let kit_dir = library.kit_dir(kit.id).unwrap().unwrap();
+    let kit_dir = library.kit_dir(kit.id).unwrap();
     assert!(kit_dir.join(".backups/kit.bak1.json").is_file());
 
     // A fresh library over the same folder sees the same kit.

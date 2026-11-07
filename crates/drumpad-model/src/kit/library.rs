@@ -599,9 +599,12 @@ impl KitLibrary {
         Ok(())
     }
 
-    /// Folder for a kit id, if it exists.
-    pub fn kit_dir(&self, id: KitId) -> Result<Option<PathBuf>, LibraryError> {
-        self.find_dir(id)
+    /// Folder for a kit id.
+    ///
+    /// Returns [`LibraryError::NotFound`] when the kit folder is missing. This
+    /// is the folder that [`super::model::SampleRef::resolve`] joins to.
+    pub fn kit_dir(&self, id: KitId) -> Result<PathBuf, LibraryError> {
+        self.find_dir(id)?.ok_or(LibraryError::NotFound(id))
     }
 
     fn write_new_kit(&self, kit: &Kit) -> Result<PathBuf, LibraryError> {
@@ -716,7 +719,7 @@ mod tests {
             kit.metadata.description = Some(format!("edit {index}"));
             library.save(&mut kit).unwrap();
         }
-        let dir = library.kit_dir(kit.id).unwrap().unwrap();
+        let dir = library.kit_dir(kit.id).unwrap();
         assert!(dir.join(BACKUP_DIR).join("kit.bak1.json").is_file());
         let reloaded = library.load(kit.id).unwrap();
         assert_eq!(reloaded.metadata.description.as_deref(), Some("edit 3"));
@@ -730,7 +733,6 @@ mod tests {
         assert!(
             library
                 .kit_dir(kit.id)
-                .unwrap()
                 .unwrap()
                 .ends_with("metal-kit-".to_owned() + &short_id(kit.id))
         );
@@ -762,7 +764,7 @@ mod tests {
     fn corrupt_manifest_is_quarantined_not_fatal() {
         let (dir, mut library) = library();
         let kit = library.create("Fragile").unwrap();
-        let kit_dir = library.kit_dir(kit.id).unwrap().unwrap();
+        let kit_dir = library.kit_dir(kit.id).unwrap();
         fs::write(kit_dir.join(MANIFEST), b"{not json").unwrap();
         let error = library.load(kit.id).unwrap_err();
         assert!(matches!(error, LibraryError::Quarantined { .. }));
@@ -777,7 +779,7 @@ mod tests {
     fn future_version_is_refused_without_quarantine() {
         let (_dir, mut library) = library();
         let kit = library.create("Future").unwrap();
-        let kit_dir = library.kit_dir(kit.id).unwrap().unwrap();
+        let kit_dir = library.kit_dir(kit.id).unwrap();
         let manifest = kit_dir.join(MANIFEST);
         let mut value: serde_json::Value =
             serde_json::from_slice(&fs::read(&manifest).unwrap()).unwrap();
@@ -794,7 +796,7 @@ mod tests {
     fn duplicate_copies_samples() {
         let (_dir, mut library) = library();
         let mut kit = library.create("Sample Kit").unwrap();
-        let kit_dir = library.kit_dir(kit.id).unwrap().unwrap();
+        let kit_dir = library.kit_dir(kit.id).unwrap();
         let sample_path = kit_dir.join("samples/kick.wav");
         fs::create_dir_all(sample_path.parent().unwrap()).unwrap();
         fs::write(&sample_path, b"fake wav").unwrap();
@@ -808,7 +810,7 @@ mod tests {
         library.save(&mut kit).unwrap();
 
         let copy = library.duplicate(kit.id, Some("Copy Kit")).unwrap();
-        let copy_dir = library.kit_dir(copy.id).unwrap().unwrap();
+        let copy_dir = library.kit_dir(copy.id).unwrap();
         assert_eq!(
             fs::read(copy_dir.join("samples/kick.wav")).unwrap(),
             b"fake wav"
@@ -828,7 +830,7 @@ mod tests {
     fn invalid_manifest_is_rejected_and_repairable() {
         let (_dir, mut library) = library();
         let kit = library.create("Needs Repair").unwrap();
-        let kit_dir = library.kit_dir(kit.id).unwrap().unwrap();
+        let kit_dir = library.kit_dir(kit.id).unwrap();
         let mut value: serde_json::Value =
             serde_json::from_slice(&fs::read(kit_dir.join(MANIFEST)).unwrap()).unwrap();
         value["pads"][0]["pan"] = serde_json::json!(4.0);
@@ -882,7 +884,6 @@ mod tests {
             library
                 .kit_dir(kit.id)
                 .unwrap()
-                .unwrap()
                 .join("samples/kick.wav")
                 .is_file()
         );
@@ -905,7 +906,7 @@ mod tests {
     fn v0_kit_is_migrated_and_backed_up() {
         let (dir, mut library) = library();
         let kit = library.create("Legacy Target").unwrap();
-        let kit_dir = library.kit_dir(kit.id).unwrap().unwrap();
+        let kit_dir = library.kit_dir(kit.id).unwrap();
         let legacy = serde_json::json!({
             "version": 0,
             "name": "Legacy Target",
