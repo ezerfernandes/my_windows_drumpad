@@ -265,6 +265,10 @@ impl MvpAudioRuntime {
                     .map_err(|_| {
                         AudioError::Runtime("command queue is full while loading kit".into())
                     })?;
+            } else {
+                handle.send(Command::ClearPadSample { pad }).map_err(|_| {
+                    AudioError::Runtime("command queue is full while loading kit".into())
+                })?;
             }
             handle
                 .send(Command::SetPadPlayback {
@@ -657,6 +661,33 @@ mod tests {
             .load_kit(&demo_kit_named("Stopped"), &dir)
             .unwrap_err();
         assert!(matches!(error, AudioError::Runtime(_)), "{error}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn load_kit_clears_pads_without_samples() {
+        let dir = demo_temp_dir();
+        write_demo_samples(&dir);
+        let mut runtime = start_fake_runtime();
+
+        let mut sparse = demo_kit_named("Sparse");
+        for pad in &mut sparse.pads {
+            if pad.id.index() != 0 {
+                pad.layers.clear();
+            }
+        }
+        runtime.load_kit(&sparse, &dir).expect("sparse kit");
+        runtime.trigger(1, 100);
+        std::thread::sleep(Duration::from_millis(100));
+        assert_eq!(
+            runtime.active_voices(),
+            0,
+            "a pad without a sample played the stale bank slot"
+        );
+
+        runtime.trigger(0, 100);
+        wait_for_voice(&runtime, true);
+        runtime.stop();
         let _ = std::fs::remove_dir_all(&dir);
     }
 

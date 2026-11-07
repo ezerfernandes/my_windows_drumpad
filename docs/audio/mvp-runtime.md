@@ -48,8 +48,8 @@ audio.load_kit(&imported.kit, &imported.kit_dir)?;
   `drumpad_samples::decode_file`, and resampled to 48 kHz through the same
   `prepare_for_device` path as the demo kit.
 - The first velocity layer of each pad is installed (sample slot, playback,
-  gain, pan, tune, choke group, loop points). Pad display names update
-  immediately on success.
+  gain, pan, tune, choke group, loop points). Pads without a sample are cleared,
+  and pad display names update immediately on success.
 - If voices are active, `load_kit` fades them and waits up to 500 ms for the
   pool to go idle, then queues the bank swap and pad commands. The engine
   installs the new bank at the start of the next audio block, so a trigger

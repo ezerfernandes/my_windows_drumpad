@@ -76,6 +76,11 @@ pub enum Command {
         /// Sample bank slot.
         slot: u16,
     },
+    /// Clear a pad's sample assignment (silent pad).
+    ClearPadSample {
+        /// Pad index.
+        pad: PadId,
+    },
     /// Change the active voice limit (16..=256) without reallocating.
     SetVoiceLimit {
         /// Number of voices the allocator may use.

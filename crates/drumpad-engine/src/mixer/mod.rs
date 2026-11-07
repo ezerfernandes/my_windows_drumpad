@@ -608,6 +608,11 @@ impl Engine {
                         p.settings.sample_slot = Some(slot);
                     }
                 }
+                Command::ClearPadSample { pad } => {
+                    if let Some(p) = self.pads.get_mut(pad.index()) {
+                        p.settings.sample_slot = None;
+                    }
+                }
                 Command::SetVoiceLimit { voices } => {
                     let limit = (voices as usize).clamp(MIN_VOICES, self.voices.len());
                     if limit < self.voice_limit {
