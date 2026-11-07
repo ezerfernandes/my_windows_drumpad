@@ -769,6 +769,9 @@ dependencies = [
 name = "drumpad-audio"
 version = "0.1.0"
 dependencies = [
+ "drumpad-engine",
+ "drumpad-model",
+ "drumpad-samples",
  "serde",
  "serde_json",
  "wasapi",
