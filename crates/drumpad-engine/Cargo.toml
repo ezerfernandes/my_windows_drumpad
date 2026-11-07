@@ -1,0 +1,13 @@
+[package]
+name = "drumpad-engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+rtrb = "0.4.1"
+drumpad-model = { path = "../drumpad-model" }
+drumpad-samples = { path = "../drumpad-samples" }
+drumpad-input = { path = "../drumpad-input", default-features = false }
+

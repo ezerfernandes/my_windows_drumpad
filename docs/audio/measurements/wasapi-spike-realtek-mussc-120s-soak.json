@@ -1,0 +1,71 @@
+{
+  "device_id": "{0.0.0.00000000}.{b7319782-52aa-49a7-993d-7236df0f728d}",
+  "device_name": "Speakers (Realtek(R) Audio)",
+  "machine": "ZPRINCIPAL",
+  "os": "Windows 11 x64",
+  "phase": "E02-T01",
+  "results": [
+    {
+      "audio_wall_seconds": 120.0042894,
+      "buffer_frames": 1126,
+      "callback_period_frames": 512.0016,
+      "callbacks": 11252,
+      "config": {
+        "channels": 2,
+        "mode": "shared",
+        "requested_frames": 128,
+        "sample_bits": 32,
+        "sample_rate": 48000,
+        "sample_type": "float"
+      },
+      "cpu_load_percent": 0.08757261971670822,
+      "engine_period_default": null,
+      "engine_period_max": null,
+      "engine_period_min": null,
+      "error": null,
+      "estimated_block_ms": 23.458333333333336,
+      "interval_ms_max": 11.128400000000001,
+      "interval_ms_mean": 10.666553048888881,
+      "interval_ms_p50": 10.6029,
+      "interval_ms_p95": 10.855500000000001,
+      "interval_ms_p99": 10.9063,
+      "late_callbacks": 0,
+      "ok": true,
+      "stream_latency_ms": 0.0,
+      "timeouts": 0
+    },
+    {
+      "audio_wall_seconds": 120.0039552,
+      "buffer_frames": 256,
+      "callback_period_frames": 255.9984,
+      "callbacks": 22503,
+      "config": {
+        "channels": 2,
+        "mode": "exclusive",
+        "requested_frames": 256,
+        "sample_bits": 16,
+        "sample_rate": 48000,
+        "sample_type": "int"
+      },
+      "cpu_load_percent": 1.1834046616490188,
+      "engine_period_default": null,
+      "engine_period_max": null,
+      "engine_period_min": null,
+      "error": null,
+      "estimated_block_ms": 5.333333333333333,
+      "interval_ms_max": 5.8025,
+      "interval_ms_mean": 5.333227745433513,
+      "interval_ms_p50": 5.2962,
+      "interval_ms_p95": 5.4202,
+      "interval_ms_p99": 5.433999999999999,
+      "late_callbacks": 0,
+      "ok": true,
+      "stream_latency_ms": 5.3333,
+      "timeouts": 0
+    }
+  ],
+  "sample_rate": 48000,
+  "seconds_per_config": 120.0,
+  "timestamp_unix": 1794069724,
+  "tool": "drumpad-audio latency-spike"
+}
