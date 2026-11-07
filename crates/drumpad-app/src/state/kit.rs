@@ -188,7 +188,7 @@ impl KitBrowser {
     /// Every kit, sorted by name.
     pub fn kits(&self) -> Vec<&KitSummary> {
         let mut kits: Vec<_> = self.kits.iter().collect();
-        kits.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        kits.sort_by_key(|kit| kit.name.to_lowercase());
         kits
     }
 

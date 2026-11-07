@@ -364,21 +364,19 @@ impl AppShell {
             .with_stencil_size(0)
             .with_transparency(false);
 
-        let (window, gl_config) = match {
-            glutin_winit::DisplayBuilder::new()
-                .with_window_attributes(Some(attributes))
-                .build(event_loop, template, |configs| {
-                    configs
-                        .reduce(|best, candidate| {
-                            if candidate.num_samples() == 0 && best.num_samples() != 0 {
-                                candidate
-                            } else {
-                                best
-                            }
-                        })
-                        .expect("at least one GL config")
-                })
-        } {
+        let (window, gl_config) = match glutin_winit::DisplayBuilder::new()
+            .with_window_attributes(Some(attributes))
+            .build(event_loop, template, |configs| {
+                configs
+                    .reduce(|best, candidate| {
+                        if candidate.num_samples() == 0 && best.num_samples() != 0 {
+                            candidate
+                        } else {
+                            best
+                        }
+                    })
+                    .expect("at least one GL config")
+            }) {
             Ok(result) => result,
             Err(error) => {
                 tracing::error!(%error, "could not create a GL display");
@@ -390,8 +388,7 @@ impl AppShell {
         let gl_display = gl_config.display();
         let raw_handle: Option<RawWindowHandle> = window
             .as_ref()
-            .map(|window| window.window_handle().map(|handle| handle.as_raw()).ok())
-            .flatten();
+            .and_then(|window| window.window_handle().map(|handle| handle.as_raw()).ok());
 
         let context_attributes = glutin::context::ContextAttributesBuilder::new().build(raw_handle);
         let fallback_attributes = glutin::context::ContextAttributesBuilder::new()

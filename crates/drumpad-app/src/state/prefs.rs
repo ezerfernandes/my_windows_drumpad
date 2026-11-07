@@ -81,22 +81,13 @@ impl Default for AudioPrefs {
 }
 
 /// MIDI input preferences.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct MidiPrefs {
     /// Selected port name. `None` means no MIDI device.
     pub device: Option<String>,
     /// MIDI channel filter, `0` for omni, otherwise `1..=16`.
     pub channel: u8,
-}
-
-impl Default for MidiPrefs {
-    fn default() -> Self {
-        Self {
-            device: None,
-            channel: 0,
-        }
-    }
 }
 
 /// Keyboard preferences.
@@ -597,6 +588,7 @@ impl SettingsSession {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::field_reassign_with_default)]
     use super::*;
     use tempfile::tempdir;
 

@@ -650,6 +650,7 @@ pub fn preferences_path(config_dir: &std::path::Path) -> PathBuf {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::field_reassign_with_default)]
     use super::*;
     use crate::state::keymap::TransportAction;
     use crate::state::kit::KitRequest;

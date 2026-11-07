@@ -490,8 +490,11 @@ impl PadInspector {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::field_reassign_with_default)]
     use super::*;
     use crate::state::keymap::KeyboardProfile;
+
+    type MutationCase = (fn(&mut PadSettings), &'static str);
 
     fn profile() -> KeyboardProfile {
         KeyboardProfile::finding_keypad()
@@ -529,7 +532,7 @@ mod tests {
 
     #[test]
     fn out_of_range_values_are_blocked_with_a_reason() {
-        let cases: Vec<(fn(&mut PadSettings), &str)> = vec![
+        let cases: &[MutationCase] = &[
             (|draft| draft.volume_db = 40.0, "volume"),
             (|draft| draft.pan = 2.0, "pan"),
             (|draft| draft.tune_semitones = 40.0, "tune"),

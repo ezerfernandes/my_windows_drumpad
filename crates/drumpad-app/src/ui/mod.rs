@@ -468,6 +468,7 @@ pub fn background(theme: &Theme) -> Color32 {
 }
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::field_reassign_with_default)]
     use super::*;
 
     fn headless(state: &mut AppState, ui: &mut UiRoot, steps: usize) {
@@ -562,7 +563,6 @@ mod tests {
     fn rebinding_consumes_exactly_one_key_and_escape_cancels() {
         let preferences = UiPreferences::default();
         let mut state = AppState::new(preferences.clone());
-        let mut ui = UiRoot::new(&preferences);
         let mut local = UiLocal::default();
 
         local.capturing_key_for = Some(state.inspector.pad());

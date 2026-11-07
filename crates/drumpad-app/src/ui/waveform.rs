@@ -360,8 +360,10 @@ fn edit_controls(
             }
             commit(actions, "Loop", params);
         }
-        if base.loop_enabled && selection.is_some() && ui.button("Loop = selection").clicked() {
-            let (start, end) = selection.expect("selection");
+        if base.loop_enabled
+            && ui.button("Loop = selection").clicked()
+            && let Some((start, end)) = selection
+        {
             let mut params = base.clone();
             params.loop_start = to_source(start);
             params.loop_end = to_source(end);

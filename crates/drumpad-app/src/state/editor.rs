@@ -191,7 +191,7 @@ impl EditParams {
         if self.loop_enabled {
             let start = self.loop_start.max(0.0);
             let end = self.loop_end.min(duration);
-            if !(start < end) {
+            if start >= end {
                 return Err(EditError::LoopRange {
                     start: self.loop_start,
                     end: self.loop_end,
@@ -619,6 +619,7 @@ impl EditSession {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::field_reassign_with_default)]
     use super::*;
 
     fn source(frames: u64, sample_rate: u32) -> SourceRef {
@@ -649,7 +650,6 @@ mod tests {
 
     #[test]
     fn trimming_returns_only_the_selected_frames() {
-        let source = source(48_000, 48_000);
         let mut params = EditParams::default();
         params.trim_start = 0.25;
         params.trim_end = Some(0.5);

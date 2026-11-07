@@ -331,6 +331,7 @@ impl WaveformView {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::field_reassign_with_default)]
     use super::*;
 
     #[test]
