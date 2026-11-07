@@ -467,8 +467,13 @@ mod tests {
         let mut system = AudioSystem::new(Box::new(backend), None, factory(opened));
         system.start().unwrap();
         control.set_stream_failure(true);
-        std::thread::sleep(Duration::from_millis(30));
-        system.tick();
+        // The fake stream reports the loss asynchronously; wait for the tick
+        // that observes it instead of assuming a fixed 30 ms scheduling window.
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while system.state().is_running() && Instant::now() < deadline {
+            system.tick();
+            std::thread::sleep(Duration::from_millis(2));
+        }
         assert!(!system.state().is_running());
         assert!(system.snapshot().is_none());
         let events = system.drain_events();

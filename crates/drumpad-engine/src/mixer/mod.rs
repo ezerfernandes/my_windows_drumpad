@@ -466,6 +466,10 @@ impl Engine {
         }
 
         self.apply_commands();
+        // A swap queued while the pool was idle can install before this
+        // block's triggers are scheduled, so the very next hit uses the new
+        // bank. When voices are active the swap stays pending until they fade.
+        self.try_apply_pending_bank();
         self.drain_triggers();
 
         let block_start = self.playhead;

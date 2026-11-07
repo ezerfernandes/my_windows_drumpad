@@ -20,14 +20,14 @@ use drumpad_engine::queue::Command;
 use drumpad_engine::voice::{LoopPoints, PlayMode, Playback, SampleBank, SampleBuffer};
 use drumpad_input::trigger::TriggerSource;
 use drumpad_model::ids::{PadId, Velocity};
-use drumpad_model::kit::{DEMO_SAMPLES, PlaybackMode, demo_kit};
+use drumpad_model::kit::{DEMO_SAMPLES, Kit, PlaybackMode, demo_kit};
 use drumpad_samples::decode::decode_file;
 use drumpad_samples::resample::prepare_for_device;
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// MVP sample rate. The stream request is pinned to this rate so the engine
 /// increment and the device rate always agree.
@@ -186,6 +186,132 @@ impl MvpAudioRuntime {
         }
     }
 
+    /// Replace the live sample bank with `kit`, resolving samples through
+    /// `kit_dir`.
+    ///
+    /// The kit is decoded and resampled on the calling (UI) thread, then the
+    /// bank and pad settings are sent through the running engine handle. Active
+    /// voices are faded first (a bounded wait) so the swap is click-free; the
+    /// engine installs the new bank at the start of the next audio block.
+    /// Pad names are updated on success.
+    ///
+    /// Returns [`AudioError::Runtime`] for a missing sample, an empty bank, a
+    /// stopped stream, or a full command queue.
+    pub fn load_kit(&mut self, kit: &Kit, kit_dir: &Path) -> Result<(), AudioError> {
+        if !self.is_running() {
+            return Err(AudioError::Runtime(
+                "cannot load a kit while audio is not running".into(),
+            ));
+        }
+        // Decode/resample before touching the engine, so a bad kit leaves the
+        // current sound untouched.
+        let (bank, pads, names) = build_bank_from_kit(kit, kit_dir, self.sample_rate)?;
+        if bank.is_empty() {
+            return Err(AudioError::Runtime(format!(
+                "kit {:?} has no playable samples",
+                kit.metadata.name
+            )));
+        }
+        let handle_present = match self.handle.lock() {
+            Ok(slot) => slot.is_some(),
+            Err(_) => false,
+        };
+        if !handle_present {
+            return Err(AudioError::Runtime(
+                "audio engine is not available for a kit swap".into(),
+            ));
+        }
+
+        // A bank swap waits until the voice pool is idle. Fade any running
+        // voices and wait briefly so a trigger immediately after this call is
+        // not dropped by the pending-swap guard.
+        if self.active_voices() > 0 {
+            if let Ok(mut slot) = self.handle.lock()
+                && let Some(handle) = slot.as_mut()
+            {
+                let _ = handle.panic();
+            }
+            let deadline = Instant::now() + Duration::from_millis(500);
+            while self.active_voices() > 0 && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(2));
+            }
+            if self.active_voices() > 0 {
+                return Err(AudioError::Runtime(
+                    "active voices did not stop for the kit swap".into(),
+                ));
+            }
+        }
+
+        let mut slot = self
+            .handle
+            .lock()
+            .map_err(|_| AudioError::Runtime("audio engine handle lock is poisoned".into()))?;
+        let Some(handle) = slot.as_mut() else {
+            return Err(AudioError::Runtime(
+                "audio engine is not available for a kit swap".into(),
+            ));
+        };
+        handle
+            .send(Command::SwapSampleBank(Arc::clone(&bank)))
+            .map_err(|_| AudioError::Runtime("command queue is full while swapping kit".into()))?;
+        for (index, settings) in pads.iter().enumerate() {
+            let pad = PadId::from_raw_unchecked(index as u8);
+            if let Some(sample_slot) = settings.sample_slot {
+                handle
+                    .send(Command::SetPadSample {
+                        pad,
+                        slot: sample_slot,
+                    })
+                    .map_err(|_| {
+                        AudioError::Runtime("command queue is full while loading kit".into())
+                    })?;
+            }
+            handle
+                .send(Command::SetPadPlayback {
+                    pad,
+                    playback: settings.playback,
+                })
+                .map_err(|_| {
+                    AudioError::Runtime("command queue is full while loading kit".into())
+                })?;
+            handle
+                .send(Command::SetPadGain {
+                    pad,
+                    gain: settings.gain,
+                })
+                .map_err(|_| {
+                    AudioError::Runtime("command queue is full while loading kit".into())
+                })?;
+            handle
+                .send(Command::SetPadPan {
+                    pad,
+                    pan: settings.pan,
+                })
+                .map_err(|_| {
+                    AudioError::Runtime("command queue is full while loading kit".into())
+                })?;
+            handle
+                .send(Command::SetPadTune {
+                    pad,
+                    cents: settings.tune_cents,
+                })
+                .map_err(|_| {
+                    AudioError::Runtime("command queue is full while loading kit".into())
+                })?;
+            handle
+                .send(Command::SetPadChokeGroup {
+                    pad,
+                    group: settings.choke_group,
+                })
+                .map_err(|_| {
+                    AudioError::Runtime("command queue is full while loading kit".into())
+                })?;
+        }
+        drop(slot);
+        self.pad_names = names;
+        Ok(())
+    }
+
     /// True while the output stream is rendering.
     pub fn is_running(&self) -> bool {
         self.system.state().is_running()
@@ -287,8 +413,8 @@ type DemoBank = (
     Vec<Option<String>>,
 );
 
-/// Decode the embedded demo WAVs, resample them to `device_rate`, and map them
-/// to pad runtime settings. No audio-thread work happens here.
+/// Decode the embedded demo WAVs into a temporary kit folder, then reuse the
+/// same mapping as an imported kit.
 fn build_demo_bank(device_rate: u32) -> Result<DemoBank, AudioError> {
     let kit = demo_kit()
         .map_err(|error| AudioError::Runtime(format!("embedded demo kit is invalid: {error}")))?;
@@ -299,8 +425,6 @@ fn build_demo_bank(device_rate: u32) -> Result<DemoBank, AudioError> {
             temp.display()
         ))
     })?;
-
-    let mut decoded: HashMap<String, SampleBuffer> = HashMap::with_capacity(DEMO_SAMPLES.len());
     for (relative, bytes) in DEMO_SAMPLES {
         let path = temp.join(relative);
         if let Some(parent) = path.parent() {
@@ -311,27 +435,26 @@ fn build_demo_bank(device_rate: u32) -> Result<DemoBank, AudioError> {
         std::fs::write(&path, bytes).map_err(|error| {
             AudioError::Runtime(format!("could not write {}: {error}", path.display()))
         })?;
-        let decoded_audio = decode_file(&path).map_err(|error| {
-            AudioError::Runtime(format!("could not decode demo sample {relative}: {error}"))
-        })?;
-        let prepared =
-            prepare_for_device(&decoded_audio.audio, device_rate, false).map_err(|error| {
-                AudioError::Runtime(format!(
-                    "could not resample demo sample {relative} to {device_rate} Hz: {error}"
-                ))
-            })?;
-        let buffer = prepared.into_sample_buffer().map_err(|error| {
-            AudioError::Runtime(format!(
-                "demo sample {relative} is not a valid playback buffer: {error}"
-            ))
-        })?;
-        decoded.insert((*relative).to_owned(), buffer);
     }
+    let result = build_bank_from_kit(&kit, &temp, device_rate);
     let _ = std::fs::remove_dir_all(&temp);
+    result
+}
 
+/// Build a bank and pad settings from any kit layout: `kit_dir` is the folder
+/// that `SampleRef::resolve` joins to. The first velocity layer of each pad is
+/// used for the MVP; samples are decoded and resampled on this (non-audio)
+/// thread.
+fn build_bank_from_kit(
+    kit: &Kit,
+    kit_dir: &Path,
+    device_rate: u32,
+) -> Result<DemoBank, AudioError> {
+    let mut decoded: HashMap<PathBuf, SampleBuffer> = HashMap::new();
     let mut bank = SampleBank::new();
     let mut pads = [PadSettings::default(); PAD_COUNT];
     let mut names: Vec<Option<String>> = vec![None; PAD_COUNT];
+
     for pad in &kit.pads {
         let index = pad.id.index();
         if index >= PAD_COUNT {
@@ -344,10 +467,34 @@ fn build_demo_bank(device_rate: u32) -> Result<DemoBank, AudioError> {
         let Some(sample_ref) = layer.sample.as_ref() else {
             continue;
         };
-        let Some(sample) = decoded.get(sample_ref.path.as_str()) else {
-            continue;
+        let path = sample_ref.resolve(kit_dir);
+        let sample = if let Some(cached) = decoded.get(&path) {
+            cached.clone()
+        } else {
+            let decoded_audio = decode_file(&path).map_err(|error| {
+                AudioError::Runtime(format!(
+                    "could not decode kit sample {}: {error}",
+                    path.display()
+                ))
+            })?;
+            let prepared =
+                prepare_for_device(&decoded_audio.audio, device_rate, false).map_err(|error| {
+                    AudioError::Runtime(format!(
+                        "could not resample kit sample {} to {device_rate} Hz: {error}",
+                        path.display()
+                    ))
+                })?;
+            let buffer = prepared.into_sample_buffer().map_err(|error| {
+                AudioError::Runtime(format!(
+                    "kit sample {} is not a valid playback buffer: {error}",
+                    path.display()
+                ))
+            })?;
+            decoded.insert(path.clone(), buffer.clone());
+            buffer
         };
-        let slot = bank.push(Arc::new(sample.clone()));
+
+        let slot = bank.push(Arc::new(sample));
         let gain_db = pad.gain_db + layer.gain_db;
         let loop_points = layer
             .loop_points
@@ -394,7 +541,51 @@ fn demo_temp_dir() -> PathBuf {
 mod tests {
     use super::*;
     use crate::backend::FakeBackend;
+    use drumpad_model::kit::RelativeSamplePath;
     use std::time::Instant;
+
+    fn write_demo_samples(dir: &Path) {
+        for (relative, bytes) in DEMO_SAMPLES {
+            let path = dir.join(relative);
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent).unwrap();
+            }
+            std::fs::write(&path, bytes).unwrap();
+        }
+    }
+
+    fn demo_kit_named(name: &str) -> Kit {
+        let mut kit = demo_kit().unwrap();
+        if let Some(pad) = kit.pads.iter_mut().find(|pad| pad.id.index() == 0) {
+            pad.name = Some(name.to_owned());
+        }
+        kit
+    }
+
+    fn start_fake_runtime() -> MvpAudioRuntime {
+        MvpAudioRuntime::start_with_backend(
+            Box::new(FakeBackend::standard().with_period(Duration::from_millis(2))),
+            None,
+            EngineConfig {
+                sample_rate: MVP_SAMPLE_RATE,
+                voice_limit: 64,
+                ..EngineConfig::default()
+            },
+        )
+        .expect("runtime")
+    }
+
+    fn wait_for_voice(runtime: &MvpAudioRuntime, active: bool) {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while (runtime.active_voices() > 0) != active && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        assert_eq!(
+            runtime.active_voices() > 0,
+            active,
+            "voice state did not settle"
+        );
+    }
 
     #[test]
     fn demo_bank_maps_all_sixteen_pads() {
@@ -405,6 +596,68 @@ mod tests {
         assert!(pads.iter().all(|pad| pad.sample_slot.is_some()));
         assert!(pads.iter().any(|pad| pad.choke_group == 1));
         assert!(pads.iter().all(|pad| pad.gain.is_finite()));
+    }
+
+    #[test]
+    fn load_kit_swaps_bank_names_and_keeps_playing() {
+        let dir = demo_temp_dir();
+        write_demo_samples(&dir);
+        let mut runtime = start_fake_runtime();
+
+        let first = demo_kit_named("Imported Kick");
+        runtime.load_kit(&first, &dir).expect("first kit");
+        assert_eq!(runtime.pad_names()[0].as_deref(), Some("Imported Kick"));
+        runtime.trigger(0, 100);
+        wait_for_voice(&runtime, true);
+        assert!(
+            runtime.engine_snapshot().is_some_and(|engine| engine
+                .meter
+                .peak_left
+                .max(engine.meter.peak_right)
+                > 0.0)
+        );
+
+        let second = demo_kit_named("Second Kick");
+        runtime.load_kit(&second, &dir).expect("second kit");
+        assert_eq!(runtime.pad_names()[0].as_deref(), Some("Second Kick"));
+        runtime.trigger(1, 100);
+        wait_for_voice(&runtime, true);
+        runtime.panic();
+        wait_for_voice(&runtime, false);
+        runtime.stop();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn load_kit_rejects_missing_samples_and_empty_banks() {
+        let dir = demo_temp_dir();
+        write_demo_samples(&dir);
+        let mut runtime = start_fake_runtime();
+
+        let mut broken = demo_kit_named("Broken");
+        let pad = broken
+            .pads
+            .iter_mut()
+            .find(|pad| pad.id.index() == 0)
+            .unwrap();
+        pad.layers[0].sample.as_mut().unwrap().path =
+            RelativeSamplePath::new("samples/missing.wav").unwrap();
+        let error = runtime.load_kit(&broken, &dir).unwrap_err();
+        assert!(matches!(error, AudioError::Runtime(_)), "{error}");
+
+        let mut empty = demo_kit_named("Empty");
+        for pad in &mut empty.pads {
+            pad.layers.clear();
+        }
+        let error = runtime.load_kit(&empty, &dir).unwrap_err();
+        assert!(matches!(error, AudioError::Runtime(_)), "{error}");
+
+        runtime.stop();
+        let error = runtime
+            .load_kit(&demo_kit_named("Stopped"), &dir)
+            .unwrap_err();
+        assert!(matches!(error, AudioError::Runtime(_)), "{error}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

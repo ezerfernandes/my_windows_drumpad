@@ -28,6 +28,36 @@ audio.panic();           // stop every voice
 `TriggerSource::UiPreview`; the audio thread applies them sample-accurately
 inside the next block.
 
+## Load an imported kit
+
+```rust
+pub fn load_kit(
+    &mut self,
+    kit: &drumpad_model::kit::Kit,
+    kit_dir: &std::path::Path,
+) -> Result<(), AudioError>;
+```
+
+```rust
+// The model/samples importer writes <kit_dir>/samples/... and a Kit manifest.
+let imported = import_folder_into_new_kit(&library, "My Kit", folder)?;
+audio.load_kit(&imported.kit, &imported.kit_dir)?;
+```
+
+- Every `SampleRef` is resolved with `SampleRef::resolve(kit_dir)`, decoded with
+  `drumpad_samples::decode_file`, and resampled to 48 kHz through the same
+  `prepare_for_device` path as the demo kit.
+- The first velocity layer of each pad is installed (sample slot, playback,
+  gain, pan, tune, choke group, loop points). Pad display names update
+  immediately on success.
+- If voices are active, `load_kit` fades them and waits up to 500 ms for the
+  pool to go idle, then queues the bank swap and pad commands. The engine
+  installs the new bank at the start of the next audio block, so a trigger
+  immediately after `load_kit` uses the new kit.
+- Errors are `AudioError::Runtime` for a missing/undecodable sample, a kit with
+  no playable samples, a stopped stream, or a full command queue. A failed load
+  leaves the current kit untouched.
+
 ## Status
 
 ```rust
