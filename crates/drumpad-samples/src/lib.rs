@@ -8,6 +8,7 @@ pub mod cache;
 pub mod decode;
 pub mod error;
 pub mod import;
+pub mod kit_import;
 pub mod peaks;
 pub mod relink;
 pub mod resample;
@@ -24,6 +25,7 @@ pub use import::{
     ImportService, ImportSummary, ImportValidationError, ProgressSnapshot, RejectedFile,
     scan_dropped_paths, validate_import_file,
 };
+pub use kit_import::{ImportedKit, KitImportError, import_folder_into_new_kit};
 pub use peaks::{
     DEFAULT_BASE_BUCKET, DEFAULT_LEVEL_COUNT, DEFAULT_MEMORY_BUDGET_BYTES, MinMaxPeak, PeakCache,
     PeakData, PeakLevel, PeakOptions, generate_peaks,
