@@ -491,10 +491,14 @@ mod tests {
         let backend = FakeBackend::standard().with_period(Duration::from_millis(5));
         let mut system = AudioSystem::new(Box::new(backend), None, factory(opened));
         system.start().unwrap();
-        std::thread::sleep(Duration::from_millis(20));
-        let snapshot = system.snapshot().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let mut snapshot = system.snapshot().unwrap();
+        while snapshot.callbacks == 0 && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(2));
+            snapshot = system.snapshot().unwrap();
+        }
         assert_eq!(snapshot.state, StreamState::Running);
-        assert!(snapshot.callbacks > 0);
+        assert!(snapshot.callbacks > 0, "stream never produced a callback");
         system.stop();
     }
 }

@@ -36,10 +36,20 @@ pub const MVP_SAMPLE_RATE: u32 = 48_000;
 /// Block size used for the startup pre-roll and the default stream request.
 pub const MVP_BLOCK_FRAMES: usize = 128;
 
+/// The bank and pad settings that the next callback factory invocation should
+/// install. `load_kit` updates this snapshot so a device-loss reconnect uses the
+/// most recently loaded kit instead of the startup demo bank.
+#[derive(Clone)]
+struct RuntimeKitState {
+    bank: Arc<SampleBank>,
+    pads: [PadSettings; PAD_COUNT],
+}
+
 /// The app-facing audio facade for the MVP vertical slice.
 pub struct MvpAudioRuntime {
     system: AudioSystem,
     handle: Arc<Mutex<Option<EngineHandle>>>,
+    kit_state: Arc<Mutex<RuntimeKitState>>,
     pad_names: Vec<Option<String>>,
     sample_rate: u32,
 }
@@ -74,12 +84,20 @@ impl MvpAudioRuntime {
         let (bank, pads, pad_names) = build_demo_bank(sample_rate)?;
 
         let handle_slot: Arc<Mutex<Option<EngineHandle>>> = Arc::new(Mutex::new(None));
+        let kit_state = Arc::new(Mutex::new(RuntimeKitState { bank, pads }));
         let factory_slot = Arc::clone(&handle_slot);
-        let factory_bank = Arc::clone(&bank);
+        let factory_kit = Arc::clone(&kit_state);
         let factory_config = config.clone();
         let factory = Box::new(move || {
+            let (bank, pads) = {
+                let state = match factory_kit.lock() {
+                    Ok(state) => state,
+                    Err(poisoned) => poisoned.into_inner(),
+                };
+                (Arc::clone(&state.bank), state.pads)
+            };
             let (mut engine, mut handle) = Engine::new(factory_config.clone());
-            let _ = handle.send(Command::SwapSampleBank(Arc::clone(&factory_bank)));
+            let _ = handle.send(Command::SwapSampleBank(bank));
             for (index, settings) in pads.iter().enumerate() {
                 let pad = PadId::from_raw_unchecked(index as u8);
                 if let Some(slot) = settings.sample_slot {
@@ -149,6 +167,7 @@ impl MvpAudioRuntime {
         Ok(Self {
             system,
             handle: handle_slot,
+            kit_state,
             pad_names,
             sample_rate,
         })
@@ -203,6 +222,9 @@ impl MvpAudioRuntime {
                 "cannot load a kit while audio is not running".into(),
             ));
         }
+        // Return any banks the engine has already retired so repeated kit
+        // loads cannot fill the retire path.
+        self.drain_retired_banks();
         // Decode/resample before touching the engine, so a bad kit leaves the
         // current sound untouched.
         let (bank, pads, names) = build_bank_from_kit(kit, kit_dir, self.sample_rate)?;
@@ -326,6 +348,13 @@ impl MvpAudioRuntime {
                 })?;
         }
         drop(slot);
+        {
+            let mut state = self.kit_state.lock().map_err(|_| {
+                AudioError::Runtime("kit state lock is poisoned after a swap".into())
+            })?;
+            state.bank = Arc::clone(&bank);
+            state.pads = pads;
+        }
         self.pad_names = names;
         Ok(())
     }
@@ -379,8 +408,20 @@ impl MvpAudioRuntime {
         self.sample_rate
     }
 
+    /// Drop sample banks the engine has already retired. Callers must be on a
+    /// non-real-time thread; this is deliberately done from `tick` and
+    /// `load_kit`, never from the audio callback.
+    fn drain_retired_banks(&self) {
+        if let Ok(mut slot) = self.handle.lock()
+            && let Some(handle) = slot.as_mut()
+        {
+            let _ = handle.collect_retired_banks();
+        }
+    }
+
     /// Poll the audio system. Call this from the UI at ~10 Hz.
     pub fn tick(&mut self) -> Option<AudioSystemEvent> {
+        self.drain_retired_banks();
         self.system.tick()
     }
 
@@ -701,6 +742,95 @@ mod tests {
 
         runtime.trigger(0, 100);
         wait_for_voice(&runtime, true);
+        runtime.stop();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn loaded_kit_survives_a_device_loss_reconnect() {
+        let dir = demo_temp_dir();
+        write_demo_samples(&dir);
+        let backend = FakeBackend::standard().with_period(Duration::from_millis(2));
+        let control = backend.clone();
+        let mut runtime = MvpAudioRuntime::start_with_backend(
+            Box::new(backend),
+            None,
+            EngineConfig {
+                sample_rate: MVP_SAMPLE_RATE,
+                voice_limit: 64,
+                ..EngineConfig::default()
+            },
+        )
+        .expect("runtime");
+
+        let mut sparse = demo_kit_named("Sparse reconnect");
+        for pad in &mut sparse.pads {
+            if pad.id.index() != 0 {
+                pad.layers.clear();
+            }
+        }
+        runtime.load_kit(&sparse, &dir).expect("sparse kit");
+
+        control.set_stream_failure(true);
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while runtime.state().is_running() && Instant::now() < deadline {
+            runtime.tick();
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        assert!(!runtime.state().is_running(), "device loss not observed");
+
+        control.set_stream_failure(false);
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while !runtime.state().is_running() && Instant::now() < deadline {
+            runtime.tick();
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        assert!(runtime.state().is_running(), "runtime did not reconnect");
+
+        // Pad 1 was cleared by the imported kit. A reconnect must not bring
+        // back the startup demo bank.
+        runtime.trigger(1, 100);
+        std::thread::sleep(Duration::from_millis(150));
+        assert_eq!(
+            runtime.active_voices(),
+            0,
+            "reconnect restored the startup demo bank instead of the loaded kit"
+        );
+
+        runtime.stop();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn repeated_load_kit_swaps_do_not_stall_the_retire_path() {
+        let dir = demo_temp_dir();
+        write_demo_samples(&dir);
+        let mut runtime = start_fake_runtime();
+        let full = demo_kit_named("Full");
+        let mut sparse = demo_kit_named("Sparse");
+        for pad in &mut sparse.pads {
+            if pad.id.index() != 0 {
+                pad.layers.clear();
+            }
+        }
+
+        // More swaps than the engine's retire queue (8) plus overflow slots
+        // (16). Each load should drain the previous retired bank.
+        for _ in 0..30 {
+            runtime.load_kit(&full, &dir).expect("full kit");
+            std::thread::sleep(Duration::from_millis(3));
+        }
+        runtime.load_kit(&sparse, &dir).expect("sparse kit");
+        runtime.trigger(0, 100);
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while runtime.active_voices() == 0 && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(
+            runtime.active_voices() > 0,
+            "final kit swap never installed after repeated loads"
+        );
+
         runtime.stop();
         let _ = std::fs::remove_dir_all(&dir);
     }

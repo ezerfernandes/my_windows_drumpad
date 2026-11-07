@@ -54,6 +54,11 @@ audio.load_kit(&imported.kit, &imported.kit_dir)?;
   pool to go idle, then queues the bank swap and pad commands. The engine
   installs the new bank at the start of the next audio block, so a trigger
   immediately after `load_kit` uses the new kit.
+- The most recently loaded kit is retained across a device-loss reconnect; the
+  callback factory rebuilds the engine from the latest bank/pad settings, not
+  the startup demo kit.
+- `tick()` and every `load_kit()` drain sample banks the engine has already
+  retired, so repeated kit loads do not fill the retire path and stall swaps.
 - Errors are `AudioError::Runtime` for a missing/undecodable sample, a kit with
   no playable samples, a stopped stream, or a full command queue. A failed load
   leaves the current kit untouched.
