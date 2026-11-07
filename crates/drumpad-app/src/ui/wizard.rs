@@ -167,9 +167,11 @@ fn keyboard(ui: &mut Ui, theme: &Theme, state: &mut AppState, actions: &mut Vec<
     }
     ui.add_space(theme.sm);
     ui.label(
-        RichText::new("Pads: 1 2 3 4 / Q W E R / A S D F / Z X C V. Transport: F1-F5.")
-            .color(theme.text_muted)
-            .size(theme.small),
+        RichText::new(
+            "Pads: 3x3 uses 1 2 3 / Q W E / A S D; 4x4 uses the full block. Transport: F1-F5.",
+        )
+        .color(theme.text_muted)
+        .size(theme.small),
     );
 }
 

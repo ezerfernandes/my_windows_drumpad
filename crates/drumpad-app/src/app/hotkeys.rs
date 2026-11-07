@@ -68,7 +68,10 @@ pub fn shortcut(key: KeyCode, modifiers: ModifiersState, pressed: bool) -> Optio
 
 /// Shortcut help lines shown in the UI, in the order they are documented.
 pub const SHORTCUT_HELP: [(&str, &str); 11] = [
-    ("1 2 3 4 / Q W E R / A S D F / Z X C V", "Trigger pads 1-16"),
+    (
+        "3x3: 1 2 3 / Q W E / A S D  |  4x4: 1 2 3 4 / Q W E R / A S D F / Z X C V",
+        "Trigger pads (1-9 in 3x3, 1-16 in 4x4)",
+    ),
     ("F1", "Panic / stop all"),
     ("F2", "Metronome"),
     ("F3 / F4", "Previous / next kit"),
