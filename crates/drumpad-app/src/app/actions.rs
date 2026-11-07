@@ -848,6 +848,73 @@ mod tests {
     }
 
     #[test]
+    fn create_kit_from_folder_emits_an_import_effect() {
+        let temp = tempfile::tempdir().expect("temp");
+        let mut state = state();
+        let effects = dispatch(
+            &mut state,
+            Action::CreateKitFromFolder {
+                name: "Imported".to_owned(),
+                folder: temp.path().to_path_buf(),
+            },
+        );
+        assert_eq!(
+            effects,
+            vec![Effect::ImportKit {
+                name: "Imported".to_owned(),
+                folder: temp.path().to_path_buf(),
+            }]
+        );
+    }
+
+    #[test]
+    fn create_kit_from_folder_rejects_a_missing_folder_or_name() {
+        let mut state = state();
+        let effects = dispatch(
+            &mut state,
+            Action::CreateKitFromFolder {
+                name: "Imported".to_owned(),
+                folder: PathBuf::from("Z:\\definitely-missing"),
+            },
+        );
+        assert!(effects.is_empty());
+        assert!(!state.notifications.toasts().is_empty());
+
+        let temp = tempfile::tempdir().expect("temp");
+        let effects = dispatch(
+            &mut state,
+            Action::CreateKitFromFolder {
+                name: "  ".to_owned(),
+                folder: temp.path().to_path_buf(),
+            },
+        );
+        assert!(effects.is_empty());
+    }
+
+    #[test]
+    fn the_grid_size_action_switches_the_surface_live() {
+        let mut state = state();
+        assert_eq!(
+            state.grid_size(),
+            crate::state::prefs::GridSize::ThreeByThree
+        );
+        assert_eq!(state.pads.get(PadId::new(0)).key_label, "Q");
+
+        dispatch(
+            &mut state,
+            Action::SetGridSize(crate::state::prefs::GridSize::FourByFour),
+        );
+        assert_eq!(state.pads.get(PadId::new(0)).key_label, "1");
+        assert_eq!(state.router.profile().pad_count(), 16);
+
+        dispatch(
+            &mut state,
+            Action::SetGridSize(crate::state::prefs::GridSize::ThreeByThree),
+        );
+        assert_eq!(state.pads.get(PadId::new(0)).key_label, "Q");
+        assert_eq!(state.router.profile().pad_count(), 9);
+    }
+    #[test]
     fn selecting_a_profile_relabels_every_pad() {
         let mut state = state();
         dispatch(&mut state, Action::SetProfile(ProfileId(1)));
