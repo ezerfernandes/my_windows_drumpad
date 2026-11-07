@@ -1,0 +1,22 @@
+[package]
+name = "drumpad-input"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[features]
+default = ["midir-backend"]
+# Real USB-MIDI capture through midir. The fake backend is always available so
+# tests and the offline harness never need hardware.
+midir-backend = ["dep:midir"]
+
+[dependencies]
+drumpad-model = { path = "../drumpad-model" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+midir = { version = "0.11", optional = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
