@@ -60,9 +60,8 @@ errors):
 cargo run -p drumpad-app
 ```
 
-On first launch the app creates its directory tree and writes default settings.
-The foundation build currently validates startup and exits; the winit/egui shell
-is added by the UI pair.
+On first launch the app creates its directory tree, writes default settings, and
+opens the Drumpad window. Close the window to exit cleanly.
 
 ### Release build
 
@@ -188,7 +187,7 @@ audio is late or flams, check the Aux In chain and the buffer size.
 | No MIDI device listed | Check cable/port, close other apps holding the port, then rescan |
 | No sound | Check the Windows default device, app volume, Local Mode, and Aux In |
 | SmartScreen blocks the ZIP | Unsigned local builds trigger it; use "More info" or sign release builds |
-| App exits immediately in release | Expected for the foundation build; the UI shell is not wired yet |
+| App exits immediately in release | Read the local log and crash folder paths above; GUI releases have no console, so startup errors are logged |
 | Startup fails | Read the local log and crash folder paths above |
 
 ## 8. Project workflow

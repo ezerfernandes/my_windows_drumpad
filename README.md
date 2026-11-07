@@ -90,8 +90,8 @@ br sync --flush-only
 
 ## Status
 
-Foundation in progress. The Cargo workspace, Windows CI, typed error model, local
+MVP in progress. The Cargo workspace, Windows CI, typed error model, local
 logging and crash capture, app paths, settings and portable mode, release
 profile, portable ZIP packaging, and architecture decision records are in
-place. The audio, engine, samples, input, and UI crates are being implemented by
-their own teams.
+place. `cargo run -p drumpad-app` opens the winit/egui shell; the audio, engine,
+samples, input, and UI crates continue to land with their teams.
