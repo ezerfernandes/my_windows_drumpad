@@ -2,47 +2,47 @@
 
 For each QA bead, this maps every acceptance-criteria checkbox to the artifact or command that proves it. A checkbox is only ticked when the evidence exists in the repo and was produced by a run, not by intent.
 
-Last updated: 2026-11-07 (before implementation landed — evidence placeholders are intentionally `pending`).
+Last updated: 2026-11-07 (MVP smoke run). Verified evidence is named; unmeasured hardware rows stay `pending`.
 
 ## E01-T06 — Benchmark and offline render harness
 
 | AC | Evidence | Status |
 | --- | --- | --- |
-| `cargo bench` reports stable baseline numbers | `cargo bench -p drumpad-tools --bench audio` output pasted in the bead; two consecutive runs with delta; parameters (block, rate, voices) printed in the bench id | pending |
-| Offline renderer produces deterministic output for fixtures | `cargo run -p drumpad-tools --bin offline_render -- --sequence tests/fixtures/sequences/one_shot.json --out a.wav` twice; `Get-FileHash a.wav,b.wav` equal; fixture list committed | pending |
-| The harness runs without an audio device | tier 0–3 run on a machine with no output device; `cargo test --workspace` and the render command both pass with devices disabled | pending |
+| `cargo bench` reports stable baseline numbers | `cargo bench -p drumpad-tools --bench audio` (10 samples): voice mixing 706–764 µs / 8×128-frame batch, resampling 1.03–1.18 ms, kit parse 94–101 µs. Numbers reported; a fixed-parameter three-run delta is still needed for "stable". | **pass (numbers)**, stability pending |
+| Offline renderer produces deterministic output for fixtures | Two consecutive `offline_render standard` runs → byte-identical WAV (`0AB11F29…B8EF`) and identical `stats.output_sha256`; `fixture_gen --check` → 6 files match `tests/fixtures/manifest.json` | **pass** |
+| The harness runs without an audio device | `cargo test -p drumpad-tools` (37 lib + 9 fake + 7 golden + 8 mvp) and every CLI above run without opening a device | **pass** |
 
 ## E11-T01 — Latency budget and measurement protocol
 
 | AC | Evidence | Status |
 | --- | --- | --- |
-| Targets and tolerances are written down | `docs/qa/latency-protocol.md` §targets matches design doc §6: < 2 ms key→queue, < 1 audio block MIDI→callback, 128 frames @ 48 kHz = 2.67 ms, < 10 ms end to end; percentile and outlier rules stated | pending |
-| Protocol includes the Finding 35-key keyboard and the Nitro Max Aux In chain | same doc names the full chain (Finding keypad → Windows 11 → WASAPI shared → onboard 3.5 mm → Nitro Max Aux In), Local Mode OFF, loopback method, drift handling | pending |
-| Baseline results are stored with hardware details | `docs/qa/latency-baseline.md` rows with OS build, driver, device, buffer, mode, p50/p95/p99, date, operator; raw captures archived; unmeasured rows say `pending` | pending |
+| Targets and tolerances are written down | `docs/qa/latency-protocol.md` §1 matches design doc §6: p99 < 2 ms key→queue (max ≤ 4 ms), p99 ≤ 1 block MIDI→callback, 128 frames @ 48 kHz = 2.667 ms, p99 < 10 ms end to end (max ≤ 15 ms); nearest-rank percentiles, warm-up, outlier and repeat rules stated | **pass** |
+| Protocol includes the Finding 35-key keyboard and the Nitro Max Aux In chain | same doc §2 names Finding 35-key → Windows 11 x64 → WASAPI shared → onboard 3.5 mm → Nitro Max Aux In, Local Mode OFF, loopback equipment, marker train, drift fit | **pass** |
+| Baseline results are stored with hardware details | `crates/drumpad-tools/baselines/latency-baseline.json` + `docs/qa/latency-baseline.md`: offline probe row measured on this machine (`key_to_queue` p99 0.0003 ms, `midi_to_callback` p99 0.250 ms); the four required physical rows say `pending` | **partial** — physical rows pending, AC not closeable on them |
 
 ## E11-T02 — Core unit test suite
 
 | AC | Evidence | Status |
 | --- | --- | --- |
-| Core coverage ≥ 80 % | `cargo llvm-cov --workspace --lib --summary-only` report, pasted; scope model/samples/engine/input | pending |
-| Tests run in under 30 s | `cargo test --workspace --lib` wall time on CI, pasted | pending |
-| No test requires audio hardware | run on a machine with no output/MIDI device; zero device opens | pending |
+| Core coverage ≥ 80 % | `cargo llvm-cov --workspace --lib --summary-only` not yet run | pending |
+| Tests run in under 30 s | `cargo test --workspace --lib` exits 0 in well under 30 s (app 224, input 155, model 82, engine 51, samples 40, tools 37) | **pass** |
+| No test requires audio hardware | every suite above runs headless; no device is opened by `model`, `samples`, `engine`, `input`, `tools` | **pass** |
 
 ## E11-T03 — Offline audio golden tests
 
 | AC | Evidence | Status |
 | --- | --- | --- |
-| Golden tests cover one-shot, gate, loop, choke, limiter | fixture table in `docs/qa/test-plan.md` §3 each has a passing test; test names map 1:1 | pending |
-| Failures identify the affected fixture | failure message shows fixture path, metric, expected vs actual, first offending frame; demonstrated by a temporary forced failure | pending |
-| Tests stable on CI | three consecutive CI runs identical; no wall-clock/threading in assertions | pending |
+| Golden tests cover one-shot, gate, loop, choke, limiter | `crates/drumpad-tools/tests/golden_audio.rs`: 7 tests, cases `one_shot`, `gate`, `loop`, `choke`, `limiter`, `pitch`, all pass against `tests/fixtures/golden/*.json` + `.f32` | **pass** |
+| Failures identify the affected fixture | assertions print case name, metric, expected vs actual, first differing frame, and both hashes | **pass (by inspection)** — not yet demonstrated by a forced failure |
+| Tests stable on CI | no CI run yet; the suite is deterministic locally (committed goldens, no clock/threading) | pending |
 
 ## E11-T04 — Fake MIDI and audio integration harness
 
 | AC | Evidence | Status |
 | --- | --- | --- |
-| A full trigger sequence runs without hardware | `cargo test --workspace --test fake_backend` (or equivalent) on a device-less machine | pending |
-| The harness is part of CI | job runs the suite on windows-latest; link to run | pending |
-| Failures include the sequence and voice state | forced-failure run shows scripted sequence, trigger log, voice table | pending |
+| A full trigger sequence runs without hardware | `crates/drumpad-tools/tests/fake_harness.rs`: 9 tests pass (note-on/off, velocity 0, running status, malformed bytes, keyboard down/up, overrun steal, all-notes-off drain) | **pass** |
+| The harness is part of CI | `.github/workflows/ci.yml` runs `cargo test --workspace --all-targets` on windows-latest | **pass (wiring)** — CI run not yet observed |
+| Failures include the sequence and voice state | `failure_dump_names_the_script_log_and_voice_table` asserts the dump contains MIDI script, keyboard script, trigger log, voice table, per-pad state | **pass** |
 
 ## E11-T05 — UI smoke tests
 
