@@ -21,6 +21,7 @@ fn main() -> ExitCode {
             // A GUI release has no attached console; the startup failure is
             // still visible in the local log and, when a console exists, on
             // stderr. The app shell owns the in-window error dialog.
+            tracing::error!(%error, "Drumpad failed to start");
             eprintln!("Drumpad failed to start: {error}");
             ExitCode::FAILURE
         }
