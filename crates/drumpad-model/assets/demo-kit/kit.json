@@ -1,0 +1,517 @@
+{
+  "format_version": 1,
+  "id": "d3a0f0b1-5b1e-4b7a-9b5d-0d2c4e6f8a10",
+  "metadata": {
+    "name": "Drumpad Demo",
+    "author": "Drumpad project",
+    "description": "Factory demo kit made from original CC0 synthesized one-shots.",
+    "tags": [
+      "demo",
+      "factory",
+      "cc0"
+    ],
+    "created_unix_ms": 1762531200000,
+    "modified_unix_ms": 1762531200000
+  },
+  "pads": [
+    {
+      "id": 0,
+      "name": "Kick",
+      "layers": [
+        {
+          "id": 1,
+          "sample": {
+            "path": "samples/kick.wav",
+            "hash": "9b817365a7a598b9816649c4ada337b120b0305196a4aa0378a8b3dc24b0fae2",
+            "original_name": "kick.wav"
+          },
+          "velocity": {
+            "min": 1,
+            "max": 127
+          },
+          "gain_db": 0.0,
+          "tune_cents": 0.0
+        }
+      ],
+      "playback": "one_shot",
+      "gain_db": 0.0,
+      "pan": 0.0,
+      "tune_semitones": 0.0,
+      "midi": {
+        "note": 36,
+        "channel": 1
+      },
+      "key": {
+        "key": 2
+      }
+    },
+    {
+      "id": 1,
+      "name": "Snare",
+      "layers": [
+        {
+          "id": 1,
+          "sample": {
+            "path": "samples/snare.wav",
+            "hash": "d263aa675eadea963d2e18c03873ff91be990beb741b4d7cecc21240443ebbd4",
+            "original_name": "snare.wav"
+          },
+          "velocity": {
+            "min": 1,
+            "max": 127
+          },
+          "gain_db": 0.0,
+          "tune_cents": 0.0
+        }
+      ],
+      "playback": "one_shot",
+      "gain_db": -1.0,
+      "pan": 0.0,
+      "tune_semitones": 0.0,
+      "midi": {
+        "note": 38,
+        "channel": 1
+      },
+      "key": {
+        "key": 3
+      }
+    },
+    {
+      "id": 2,
+      "name": "Rimshot",
+      "layers": [
+        {
+          "id": 1,
+          "sample": {
+            "path": "samples/rim.wav",
+            "hash": "0e4512cfac016c9138b14c61674e85dd58e7ae889ac2dc9bbffeaf396897215f",
+            "original_name": "rim.wav"
+          },
+          "velocity": {
+            "min": 1,
+            "max": 127
+          },
+          "gain_db": 0.0,
+          "tune_cents": 0.0
+        }
+      ],
+      "playback": "one_shot",
+      "gain_db": -6.0,
+      "pan": 0.0,
+      "tune_semitones": 0.0,
+      "midi": {
+        "note": 40,
+        "channel": 1
+      },
+      "key": {
+        "key": 4
+      }
+    },
+    {
+      "id": 3,
+      "name": "Clap",
+      "layers": [
+        {
+          "id": 1,
+          "sample": {
+            "path": "samples/clap.wav",
+            "hash": "e8be75679c1cca4ec39883b110c19fda190a714882603eb1b485a6b3ec361ce9",
+            "original_name": "clap.wav"
+          },
+          "velocity": {
+            "min": 1,
+            "max": 127
+          },
+          "gain_db": 0.0,
+          "tune_cents": 0.0
+        }
+      ],
+      "playback": "one_shot",
+      "gain_db": -4.0,
+      "pan": 0.0,
+      "tune_semitones": 0.0,
+      "midi": {
+        "note": 39,
+        "channel": 1
+      },
+      "key": {
+        "key": 5
+      }
+    },
+    {
+      "id": 4,
+      "name": "Floor Tom",
+      "layers": [
+        {
+          "id": 1,
+          "sample": {
+            "path": "samples/floor_tom.wav",
+            "hash": "0f8d9d0baccc0e97201b95a9b9f00cedbb60562625847c053582c2b85dec1825",
+            "original_name": "floor_tom.wav"
+          },
+          "velocity": {
+            "min": 1,
+            "max": 127
+          },
+          "gain_db": 0.0,
+          "tune_cents": 0.0
+        }
+      ],
+      "playback": "one_shot",
+      "gain_db": -3.0,
+      "pan": -0.25,
+      "tune_semitones": 0.0,
+      "midi": {
+        "note": 41,
+        "channel": 1
+      },
+      "key": {
+        "key": 16
+      }
+    },
+    {
+      "id": 5,
+      "name": "Tom Low",
+      "layers": [
+        {
+          "id": 1,
+          "sample": {
+            "path": "samples/tom_low.wav",
+            "hash": "4f820c505c74d737ffc56e1a3ee21dd3f18bd0aceca39e65157b93e3c920fcd4",
+            "original_name": "tom_low.wav"
+          },
+          "velocity": {
+            "min": 1,
+            "max": 127
+          },
+          "gain_db": 0.0,
+          "tune_cents": 0.0
+        }
+      ],
+      "playback": "one_shot",
+      "gain_db": -3.0,
+      "pan": -0.15,
+      "tune_semitones": 0.0,
+      "midi": {
+        "note": 45,
+        "channel": 1
+      },
+      "key": {
+        "key": 17
+      }
+    },
+    {
+      "id": 6,
+      "name": "Tom Mid",
+      "layers": [
+        {
+          "id": 1,
+          "sample": {
+            "path": "samples/tom_mid.wav",
+            "hash": "f257bd42478d6236fadf61d9a1a2dd5acea0daa2fa78517ae4ded2c8bc946079",
+            "original_name": "tom_mid.wav"
+          },
+          "velocity": {
+            "min": 1,
+            "max": 127
+          },
+          "gain_db": 0.0,
+          "tune_cents": 0.0
+        }
+      ],
+      "playback": "one_shot",
+      "gain_db": -3.0,
+      "pan": 0.15,
+      "tune_semitones": 0.0,
+      "midi": {
+        "note": 48,
+        "channel": 1
+      },
+      "key": {
+        "key": 18
+      }
+    },
+    {
+      "id": 7,
+      "name": "Tom High",
+      "layers": [
+        {
+          "id": 1,
+          "sample": {
+            "path": "samples/tom_high.wav",
+            "hash": "14a5ad2b707ddb724995f9e23cfe283b146d9dcbcf9fdce266ea276f82aceea5",
+            "original_name": "tom_high.wav"
+          },
+          "velocity": {
+            "min": 1,
+            "max": 127
+          },
+          "gain_db": 0.0,
+          "tune_cents": 0.0
+        }
+      ],
+      "playback": "one_shot",
+      "gain_db": -3.0,
+      "pan": 0.25,
+      "tune_semitones": 0.0,
+      "midi": {
+        "note": 43,
+        "channel": 1
+      },
+      "key": {
+        "key": 19
+      }
+    },
+    {
+      "id": 8,
+      "name": "Hat Closed",
+      "layers": [
+        {
+          "id": 1,
+          "sample": {
+            "path": "samples/hat_closed.wav",
+            "hash": "46bac9f157328d66eced5c51399e1f323d8df46f6a6e2cc6660ab2b134caa206",
+            "original_name": "hat_closed.wav"
+          },
+          "velocity": {
+            "min": 1,
+            "max": 127
+          },
+          "gain_db": 0.0,
+          "tune_cents": 0.0
+        }
+      ],
+      "playback": "one_shot",
+      "gain_db": -10.0,
+      "pan": 0.18,
+      "tune_semitones": 0.0,
+      "midi": {
+        "note": 42,
+        "channel": 1
+      },
+      "key": {
+        "key": 30
+      },
+      "choke_group": 1
+    },
+    {
+      "id": 9,
+      "name": "Hat Pedal",
+      "layers": [
+        {
+          "id": 1,
+          "sample": {
+            "path": "samples/hat_pedal.wav",
+            "hash": "2527821019ce440a7de1bff98d28f0815f1f3fbc100ca20ed2c218e177bdfacf",
+            "original_name": "hat_pedal.wav"
+          },
+          "velocity": {
+            "min": 1,
+            "max": 127
+          },
+          "gain_db": 0.0,
+          "tune_cents": 0.0
+        }
+      ],
+      "playback": "one_shot",
+      "gain_db": -12.0,
+      "pan": 0.18,
+      "tune_semitones": 0.0,
+      "midi": {
+        "note": 44,
+        "channel": 1
+      },
+      "key": {
+        "key": 31
+      },
+      "choke_group": 1
+    },
+    {
+      "id": 10,
+      "name": "Hat Open",
+      "layers": [
+        {
+          "id": 1,
+          "sample": {
+            "path": "samples/hat_open.wav",
+            "hash": "e9cf386eca267807053cdb87302484faeae5de30310b5c707e0b543e604572d4",
+            "original_name": "hat_open.wav"
+          },
+          "velocity": {
+            "min": 1,
+            "max": 127
+          },
+          "gain_db": 0.0,
+          "tune_cents": 0.0
+        }
+      ],
+      "playback": "one_shot",
+      "gain_db": -11.0,
+      "pan": 0.18,
+      "tune_semitones": 0.0,
+      "midi": {
+        "note": 46,
+        "channel": 1
+      },
+      "key": {
+        "key": 32
+      },
+      "choke_group": 1
+    },
+    {
+      "id": 11,
+      "name": "Crash",
+      "layers": [
+        {
+          "id": 1,
+          "sample": {
+            "path": "samples/crash.wav",
+            "hash": "54acdcf1eb45601c59b7156e80a105efec53136048f804c02f69590203863dd3",
+            "original_name": "crash.wav"
+          },
+          "velocity": {
+            "min": 1,
+            "max": 127
+          },
+          "gain_db": 0.0,
+          "tune_cents": 0.0
+        }
+      ],
+      "playback": "one_shot",
+      "gain_db": -8.0,
+      "pan": -0.2,
+      "tune_semitones": 0.0,
+      "midi": {
+        "note": 49,
+        "channel": 1
+      },
+      "key": {
+        "key": 33
+      }
+    },
+    {
+      "id": 12,
+      "name": "Ride",
+      "layers": [
+        {
+          "id": 1,
+          "sample": {
+            "path": "samples/ride.wav",
+            "hash": "d2b586c72c6f39baf619ecef6b2377d211080c09728e1056e063568b82d9ef5c",
+            "original_name": "ride.wav"
+          },
+          "velocity": {
+            "min": 1,
+            "max": 127
+          },
+          "gain_db": 0.0,
+          "tune_cents": 0.0
+        }
+      ],
+      "playback": "one_shot",
+      "gain_db": -10.0,
+      "pan": 0.2,
+      "tune_semitones": 0.0,
+      "midi": {
+        "note": 51,
+        "channel": 1
+      },
+      "key": {
+        "key": 44
+      }
+    },
+    {
+      "id": 13,
+      "name": "Ride Bell",
+      "layers": [
+        {
+          "id": 1,
+          "sample": {
+            "path": "samples/ride_bell.wav",
+            "hash": "24dd9787eecacc917b8b77ae9a81488eb1bb5955538a60aa1733146d3dec30c4",
+            "original_name": "ride_bell.wav"
+          },
+          "velocity": {
+            "min": 1,
+            "max": 127
+          },
+          "gain_db": 0.0,
+          "tune_cents": 0.0
+        }
+      ],
+      "playback": "one_shot",
+      "gain_db": -10.0,
+      "pan": 0.2,
+      "tune_semitones": 0.0,
+      "midi": {
+        "note": 53,
+        "channel": 1
+      },
+      "key": {
+        "key": 45
+      }
+    },
+    {
+      "id": 14,
+      "name": "Cowbell",
+      "layers": [
+        {
+          "id": 1,
+          "sample": {
+            "path": "samples/cowbell.wav",
+            "hash": "b0ecafe8850e8de9119617dda87b299f51c52ba6067d13810a8fbe309a4aab4d",
+            "original_name": "cowbell.wav"
+          },
+          "velocity": {
+            "min": 1,
+            "max": 127
+          },
+          "gain_db": 0.0,
+          "tune_cents": 0.0
+        }
+      ],
+      "playback": "one_shot",
+      "gain_db": -8.0,
+      "pan": 0.0,
+      "tune_semitones": 0.0,
+      "midi": {
+        "note": 56,
+        "channel": 1
+      },
+      "key": {
+        "key": 46
+      }
+    },
+    {
+      "id": 15,
+      "name": "Tambourine",
+      "layers": [
+        {
+          "id": 1,
+          "sample": {
+            "path": "samples/tambourine.wav",
+            "hash": "299de0426e9f2c622c92c67811b0a36fd166a037837706bebaadf6fc070c0ff0",
+            "original_name": "tambourine.wav"
+          },
+          "velocity": {
+            "min": 1,
+            "max": 127
+          },
+          "gain_db": 0.0,
+          "tune_cents": 0.0
+        }
+      ],
+      "playback": "one_shot",
+      "gain_db": -10.0,
+      "pan": 0.3,
+      "tune_semitones": 0.0,
+      "midi": {
+        "note": 54,
+        "channel": 1
+      },
+      "key": {
+        "key": 47
+      }
+    }
+  ]
+}

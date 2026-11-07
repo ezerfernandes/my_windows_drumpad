@@ -1,0 +1,139 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://drumpad.local/schema/kit-v1.schema.json",
+  "title": "Drumpad Kit Format v1",
+  "description": "Portable kit manifest. Unknown fields are ignored by readers so minor additions remain backward compatible.",
+  "type": "object",
+  "required": ["format_version", "id", "metadata", "pads"],
+  "properties": {
+    "format_version": {
+      "const": 1,
+      "description": "On-disk schema version. Documents from the future are refused."
+    },
+    "id": {
+      "type": "string",
+      "description": "Stable UUID that survives renames and moves."
+    },
+    "metadata": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "author": { "type": "string", "maxLength": 128 },
+        "description": { "type": "string", "maxLength": 4096 },
+        "tags": {
+          "type": "array",
+          "maxItems": 32,
+          "items": { "type": "string", "maxLength": 32 }
+        },
+        "created_unix_ms": { "type": "integer", "minimum": 0 },
+        "modified_unix_ms": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": true
+    },
+    "pads": {
+      "type": "array",
+      "minItems": 16,
+      "maxItems": 16,
+      "items": { "$ref": "#/$defs/pad" }
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "relative_sample_path": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^/\\\\][^\\\\]*$",
+      "not": {
+        "pattern": "(^|/)\\.\\.(/|$)"
+      },
+      "description": "Kit-relative path using forward slashes. Absolute paths, drive prefixes, parent traversal, and reserved device names are rejected by the application."
+    },
+    "content_hash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "SHA-256 of canonical decoded PCM: SHA256(\"drumpad-pcm-v1\" || sample_rate_le_u32 || channels_le_u16 || frames_le_u64 || interleaved_f32_le)."
+    },
+    "sample": {
+      "type": "object",
+      "required": ["path"],
+      "properties": {
+        "path": { "$ref": "#/$defs/relative_sample_path" },
+        "hash": { "$ref": "#/$defs/content_hash" },
+        "original_name": { "type": "string", "maxLength": 255 }
+      },
+      "additionalProperties": true
+    },
+    "layer": {
+      "type": "object",
+      "required": ["id", "velocity"],
+      "properties": {
+        "id": { "type": "integer", "minimum": 0 },
+        "sample": { "$ref": "#/$defs/sample" },
+        "velocity": {
+          "type": "object",
+          "required": ["min", "max"],
+          "properties": {
+            "min": { "type": "integer", "minimum": 1, "maximum": 127 },
+            "max": { "type": "integer", "minimum": 1, "maximum": 127 }
+          },
+          "additionalProperties": true
+        },
+        "gain_db": { "type": "number", "minimum": -60, "maximum": 24 },
+        "tune_cents": { "type": "number", "minimum": -2400, "maximum": 2400 },
+        "loop_points": {
+          "type": "object",
+          "required": ["start_frame", "end_frame"],
+          "properties": {
+            "start_frame": { "type": "integer", "minimum": 0 },
+            "end_frame": { "type": "integer", "minimum": 1 }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "pad": {
+      "type": "object",
+      "required": ["id", "layers"],
+      "properties": {
+        "id": { "type": "integer", "minimum": 0, "maximum": 15 },
+        "name": { "type": "string", "maxLength": 64 },
+        "layers": {
+          "type": "array",
+          "maxItems": 32,
+          "items": { "$ref": "#/$defs/layer" }
+        },
+        "playback": {
+          "enum": ["one_shot", "gate", "loop"]
+        },
+        "gain_db": { "type": "number", "minimum": -60, "maximum": 24 },
+        "pan": { "type": "number", "minimum": -1, "maximum": 1 },
+        "tune_semitones": { "type": "number", "minimum": -24, "maximum": 24 },
+        "choke_group": { "type": "integer", "minimum": 0, "maximum": 15 },
+        "midi": {
+          "type": "object",
+          "required": ["note"],
+          "properties": {
+            "note": { "type": "integer", "minimum": 0, "maximum": 127 },
+            "channel": { "type": "integer", "minimum": 1, "maximum": 16 }
+          },
+          "additionalProperties": true
+        },
+        "key": {
+          "type": "object",
+          "required": ["key"],
+          "properties": {
+            "key": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Platform-neutral physical key code (Windows scan code in the low 16 bits, 0x100 marks extended keys)."
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}
