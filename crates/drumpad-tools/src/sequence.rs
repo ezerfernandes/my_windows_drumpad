@@ -498,6 +498,20 @@ mod tests {
     }
 
     #[test]
+    fn last_scheduled_frame_rounds_the_last_event_up() {
+        let sequence = Sequence::parse("1 note_on 0 100\n480 note_on 1 100\n").expect("parse");
+        assert_eq!(sequence.last_frame(), 480);
+        assert_eq!(sequence.last_scheduled_frame(128), 512);
+        assert_eq!(sequence.last_scheduled_frame(1), 480);
+        assert_eq!(
+            Sequence::parse("# empty\n")
+                .expect("parse")
+                .last_scheduled_frame(128),
+            0
+        );
+    }
+
+    #[test]
     fn due_returns_events_once_in_file_order() {
         let sequence = Sequence::parse(SAMPLE).expect("parse");
         let mut cursor = 0;

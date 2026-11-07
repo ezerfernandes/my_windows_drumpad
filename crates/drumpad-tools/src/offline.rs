@@ -418,9 +418,13 @@ impl OfflineSession {
 
     /// Render a sequence to completion plus the configured tail.
     pub fn render(&mut self, sequence: &Sequence) -> Result<OfflineRender, RenderError> {
-        let total_frames = sequence
-            .last_scheduled_frame(self.config.block_frames)
+        let last_scheduled = sequence.last_scheduled_frame(self.config.block_frames);
+        // The engine applies an event at the boundary that starts its block,
+        // so the render must include at least one frame of that block even
+        // when the tail is zero. Otherwise the last event is silently dropped.
+        let total_frames = last_scheduled
             .saturating_add(self.config.tail_frames)
+            .max(last_scheduled.saturating_add(1))
             .max(self.config.block_frames as u64);
         let blocks = total_frames.div_ceil(self.config.block_frames as u64) as usize;
         let mut output = Vec::with_capacity(blocks * self.config.block_frames * 2);
@@ -633,6 +637,25 @@ mod tests {
             "peak {} exceeded full scale",
             rendered.stats.peak
         );
+    }
+
+    #[test]
+    fn zero_tail_still_renders_the_last_event() {
+        let sequence = Sequence::parse("1 note_on 0 100\n").expect("sequence");
+        let rendered = render(
+            &sequence,
+            RenderConfig {
+                tail_frames: 0,
+                ..config(128)
+            },
+        )
+        .expect("render");
+        assert_eq!(
+            rendered.frames, 256,
+            "render must include the block that starts at frame 128"
+        );
+        assert_eq!(rendered.trigger_count[0], 1);
+        assert!(rendered.stats.peak > 0.0, "last event was dropped");
     }
 
     #[test]
