@@ -83,20 +83,19 @@ impl KitService {
     pub fn refresh(&mut self, browser: &mut KitBrowser) -> Result<(), String> {
         let summaries = self.library.list().map_err(|error| error.to_string())?;
         self.ui_to_model.clear();
-        let entries: Vec<(String, bool)> = summaries
-            .iter()
-            .map(|summary| (summary.name.clone(), is_demo(summary)))
-            .collect();
+        let active_model = self.active.as_ref().map(|kit| kit.id);
+        let mut entries = Vec::with_capacity(summaries.len());
+        let mut active_ui = None;
 
-        // The UI assigns fresh ids in insertion order; mirror that here so the
-        // next dispatch can resolve the row back to a model id.
-        let active_name = self.active.as_ref().map(|kit| kit.metadata.name.clone());
-        browser.replace_catalogue(&entries, active_name.as_deref());
-        for summary in &summaries {
-            if let Some(ui_id) = browser.kits().iter().find(|row| row.name == summary.name) {
-                self.ui_to_model.insert(ui_id.id.0, summary.id);
+        for (index, summary) in summaries.iter().enumerate() {
+            let ui_id = index as u64 + 1;
+            self.ui_to_model.insert(ui_id, summary.id);
+            if Some(summary.id) == active_model {
+                active_ui = Some(ui_id);
             }
+            entries.push((ui_id, summary.name.clone(), is_demo(summary)));
         }
+        browser.replace_catalogue_ids(&entries, active_ui);
         Ok(())
     }
 

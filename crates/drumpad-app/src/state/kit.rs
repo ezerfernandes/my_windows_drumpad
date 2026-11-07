@@ -244,11 +244,34 @@ impl KitBrowser {
         }
     }
 
-    /// Replace the catalogue from the real kit library.
+    /// Replace the catalogue from the real kit library, using the caller's ids.
     ///
-    /// UI ids are session-local; the shell maps them to model ids after every
-    /// refresh. The active row is matched by name, and any parked prompt is
-    /// cleared because the action it referred to may no longer exist.
+    /// Duplicate display names are allowed in a kit library, so the shell maps
+    /// rows to durable ids by number rather than by name.
+    pub fn replace_catalogue_ids(&mut self, entries: &[(u64, String, bool)], active: Option<u64>) {
+        self.kits.clear();
+        self.pending = None;
+        for (id, name, factory) in entries {
+            self.kits.push(KitSummary {
+                id: KitId(*id),
+                name: name.clone(),
+                path: None,
+                dirty: false,
+                factory: *factory,
+            });
+            self.next_id = self.next_id.max(id.saturating_add(1));
+        }
+        self.active = active
+            .map(KitId)
+            .filter(|id| self.kits.iter().any(|kit| kit.id == *id))
+            .or_else(|| self.kits.first().map(|kit| kit.id));
+        self.load = match self.active {
+            Some(kit) => LoadStatus::Ready { kit },
+            None => LoadStatus::Idle,
+        };
+    }
+
+    /// Replace the catalogue, matching the active row by name.
     pub fn replace_catalogue(&mut self, entries: &[(String, bool)], active_name: Option<&str>) {
         self.kits.clear();
         self.pending = None;

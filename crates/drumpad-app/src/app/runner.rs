@@ -301,13 +301,34 @@ struct AppShell {
 
 impl AppShell {
     fn new(options: AppOptions, proxy: EventLoopProxy<UserEvent>) -> Self {
-        let state = AppState::new(options.preferences.clone());
+        let mut state = AppState::new(options.preferences.clone());
         let ui = UiRoot::new(&options.preferences);
 
-        // The durable kit library is opened by the folder-import wiring. Until
-        // that lands, the demo runtime stays the initial sound and the catalogue
-        // is seeded by `AppState::new`.
-        let kits: Option<KitService> = None;
+        // Open the durable kit library. It installs the demo kit on first run
+        // and loads the active kit, so the grid shows real pad names/samples
+        // immediately instead of the empty placeholder catalogue.
+        let kits = match KitService::open(options.paths.data_dir().join("kits")) {
+            Ok(mut service) => {
+                if let Err(error) = service.refresh(&mut state.kits) {
+                    tracing::error!(%error, "could not list the kit library");
+                    state.notifications.error(
+                        "Kit library could not be read",
+                        error,
+                        DialogAction::new(DialogIntent::OpenLogFolder),
+                    );
+                }
+                Some(service)
+            }
+            Err(error) => {
+                tracing::error!(%error, "could not open the kit library");
+                state.notifications.error(
+                    "Kit library could not open",
+                    format!("{error}. The demo kit stays playable."),
+                    DialogAction::new(DialogIntent::OpenLogFolder),
+                );
+                None
+            }
+        };
 
         Self {
             state,
@@ -511,6 +532,11 @@ impl AppShell {
         match MvpAudioRuntime::start() {
             Ok(mut runtime) => {
                 let status = status_for(&runtime);
+                // Label the grid from the demo kit first, so a missing or
+                // silent user kit still shows meaningful pad names.
+                if let Ok(demo) = drumpad_model::kit::demo::demo_kit() {
+                    self.state.apply_kit(&demo);
+                }
                 // Load the active library kit. On failure the runtime keeps the
                 // demo bank it started with, and the dialog explains why.
                 let active = self.kits.as_ref().and_then(|service| {
