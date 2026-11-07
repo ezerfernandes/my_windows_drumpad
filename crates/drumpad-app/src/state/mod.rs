@@ -550,8 +550,8 @@ mod tests {
     fn key_labels_come_from_the_active_profile() {
         let state = AppState::new(UiPreferences::default());
         assert_eq!(state.grid_size(), GridSize::ThreeByThree);
-        assert_eq!(state.pads.get(PadId::new(0)).key_label, "Q");
-        assert_eq!(state.pads.get(PadId::new(8)).key_label, "C");
+        assert_eq!(state.pads.get(PadId::new(0)).key_label, "1");
+        assert_eq!(state.pads.get(PadId::new(8)).key_label, "D");
         assert_eq!(
             state.pads.get(PadId::new(0)).key_label,
             GridSize::ThreeByThree.key_labels()[0]

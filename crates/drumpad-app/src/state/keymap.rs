@@ -177,17 +177,18 @@ pub const GRID_KEYS: [KeyCode; PAD_COUNT] = [
     KeyCode::KeyV,
 ];
 
-/// The nine 3x3 pad keys: `Q W E`, `A S D`, `Z X C`, row-major.
+/// The nine 3x3 pad keys: `1 2 3`, `Q W E`, `A S D` — the top-left 3x3 of the
+/// 4x4 block — row-major.
 pub const GRID_KEYS_3X3: [KeyCode; 9] = [
+    KeyCode::Digit1,
+    KeyCode::Digit2,
+    KeyCode::Digit3,
     KeyCode::KeyQ,
     KeyCode::KeyW,
     KeyCode::KeyE,
     KeyCode::KeyA,
     KeyCode::KeyS,
     KeyCode::KeyD,
-    KeyCode::KeyZ,
-    KeyCode::KeyX,
-    KeyCode::KeyC,
 ];
 
 /// Transport keys for the reference profiles.
@@ -809,7 +810,7 @@ mod tests {
     }
 
     #[test]
-    fn the_3x3_profile_maps_qwe_asdzx_to_pads_one_through_nine() {
+    fn the_3x3_profile_maps_the_top_left_block_to_pads_one_through_nine() {
         let profile = finding().with_grid(GridSize::ThreeByThree);
         assert_eq!(profile.pad_count(), 9);
         for (index, key) in GRID_KEYS_3X3.iter().enumerate() {
@@ -821,7 +822,7 @@ mod tests {
             );
         }
         assert_eq!(
-            profile.action_for(KeyCode::Digit1),
+            profile.action_for(KeyCode::Digit4),
             KeyAction::Unmapped(false)
         );
         assert_eq!(
@@ -844,25 +845,29 @@ mod tests {
         let profile = finding();
         assert_eq!(profile.pad_labels()[0], "1");
         let small = profile.clone().with_grid(GridSize::ThreeByThree);
-        assert_eq!(small.pad_labels()[0], "Q");
-        assert_eq!(small.pad_labels()[8], "C");
+        assert_eq!(small.pad_labels()[0], "1");
+        assert_eq!(small.pad_labels()[8], "D");
         assert_eq!(small.chart()[0].rows.len(), 3);
         assert_eq!(small.chart()[0].rows[0].keys.len(), 3);
         assert_eq!(profile.chart()[0].rows.len(), 4);
     }
 
     #[test]
-    fn a_router_switching_to_3x3_ignores_the_number_row() {
+    fn a_router_switching_to_3x3_drops_the_rest_of_the_4x4_block() {
         let mut router = KeyRouter::new(finding());
+        assert_eq!(
+            router.route(KeyInput::press(KeyCode::Digit4)),
+            Some(KeyAction::Pad(PadId::new(3)))
+        );
+        router.set_grid(GridSize::ThreeByThree);
+        assert_eq!(router.route(KeyInput::release(KeyCode::Digit4)), None);
         assert_eq!(
             router.route(KeyInput::press(KeyCode::Digit1)),
             Some(KeyAction::Pad(PadId::new(0)))
         );
-        router.set_grid(GridSize::ThreeByThree);
-        assert_eq!(router.route(KeyInput::release(KeyCode::Digit1)), None);
         assert_eq!(
             router.route(KeyInput::press(KeyCode::KeyQ)),
-            Some(KeyAction::Pad(PadId::new(0)))
+            Some(KeyAction::Pad(PadId::new(3)))
         );
     }
 

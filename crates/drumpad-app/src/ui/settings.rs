@@ -224,7 +224,7 @@ fn keyboard(ui: &mut Ui, theme: &Theme, state: &mut AppState, actions: &mut Vec<
     });
     ui.label(
         RichText::new(
-            "3x3 uses Q W E / A S D / Z X C for the first nine pads; the kit keeps all 16.",
+            "3x3 uses 1 2 3 / Q W E / A S D for the first nine pads; the kit keeps all 16.",
         )
         .color(theme.text_disabled)
         .size(theme.small),

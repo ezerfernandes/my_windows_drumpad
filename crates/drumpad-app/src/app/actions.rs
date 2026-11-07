@@ -899,27 +899,29 @@ mod tests {
             state.grid_size(),
             crate::state::prefs::GridSize::ThreeByThree
         );
-        assert_eq!(state.pads.get(PadId::new(0)).key_label, "Q");
+        assert_eq!(state.pads.get(PadId::new(0)).key_label, "1");
+        assert_eq!(state.pads.get(PadId::new(3)).key_label, "Q");
 
         dispatch(
             &mut state,
             Action::SetGridSize(crate::state::prefs::GridSize::FourByFour),
         );
         assert_eq!(state.pads.get(PadId::new(0)).key_label, "1");
+        assert_eq!(state.pads.get(PadId::new(3)).key_label, "4");
         assert_eq!(state.router.profile().pad_count(), 16);
 
         dispatch(
             &mut state,
             Action::SetGridSize(crate::state::prefs::GridSize::ThreeByThree),
         );
-        assert_eq!(state.pads.get(PadId::new(0)).key_label, "Q");
+        assert_eq!(state.pads.get(PadId::new(3)).key_label, "Q");
         assert_eq!(state.router.profile().pad_count(), 9);
     }
     #[test]
     fn selecting_a_profile_relabels_every_pad() {
         let mut state = state();
         dispatch(&mut state, Action::SetProfile(ProfileId(1)));
-        assert_eq!(state.pads.get(PadId::new(0)).key_label, "Q");
+        assert_eq!(state.pads.get(PadId::new(0)).key_label, "1");
         assert_eq!(state.profile().name, "Full keyboard");
     }
 
