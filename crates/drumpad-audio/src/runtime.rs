@@ -251,6 +251,20 @@ impl MvpAudioRuntime {
                 "audio engine is not available for a kit swap".into(),
             ));
         };
+        // One swap + six commands per pad. Refuse before sending anything if
+        // the queue cannot take the whole kit, so a failed load cannot leave a
+        // half-applied kit.
+        let needed = 1 + PAD_COUNT * 6;
+        if handle
+            .commands
+            .capacity()
+            .saturating_sub(handle.commands.len())
+            < needed
+        {
+            return Err(AudioError::Runtime(
+                "command queue is too full for a complete kit swap".into(),
+            ));
+        }
         handle
             .send(Command::SwapSampleBank(Arc::clone(&bank)))
             .map_err(|_| AudioError::Runtime("command queue is full while swapping kit".into()))?;
