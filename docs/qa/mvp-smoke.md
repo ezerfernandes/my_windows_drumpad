@@ -112,6 +112,7 @@ the owning team on thread `TEAM-drumpad-qa-20261107124803-9638`.
 | Date | Build / commit | Default device | Mode / rate / buffer | Result | Blockers (owner) | Operator |
 | --- | --- | --- | --- | --- | --- | --- |
 | 2026-11-07 | uncommitted dev build (`cargo build -p drumpad-app`, window title "Drumpad 0.1.0") | status bar off-screen; log has no device line | 48 kHz / 128 frames from defaults | **FAIL (window fit)** | window 1454x938 on a 1536x816 work area; bottom 173 px clipped, status bar not visible — app shell/UI (E08). Audio status could not be read. | MaroonCat |
+| 2026-11-07 | `8458ca6` + local tree, separate target dir | `Speakers (Realtek(R) Audio)` from the log | shared / 48000 / buffer 1126, callback period 512 | **partial**: process launched and stayed in the window loop for 10 s; log shows `MVP audio runtime started running=true`, `share_mode: Shared`, no fallback, and earlier runs logged `window closed; shutting down` + `Drumpad closed cleanly`. Grid, audible pads, F1/F5, and window fit are not observable from the headless agent shell. | interactive rows and window fit need a human; `drumpad-app` fmt/clippy failures (UI/app) | MistyGrove (headless) |
 | pending | pending | pending | pending | pending | pending | pending |
 
 Headless counterpart on the same build:
