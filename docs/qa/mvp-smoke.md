@@ -30,8 +30,12 @@ owning team, not something QA patches in place.
    seconds.
 
 2. **Window and grid.** The window opens with a 4x4 pad grid. Every pad shows a
-   name and its key label. The status bar shows the active kit name, the
-   keyboard profile, and the selected pad.
+   name and its key label. On a first run the **Setup wizard** opens over the
+   grid ("Step 1 of 6 — Welcome to Drumpad"); skip or finish it, then confirm
+   the grid. The status bar shows `Kit: <name> | Audio: <device> | <rate> Hz |
+   <frames> frames | <voices>` on the left and `Pad <n> | <profile>` on the
+   right. **The whole window must be inside the screen work area** — the status
+   bar is the MVP's only device readout.
 
 3. **Demo kit and audio.** The kit name is the demo/factory kit. Hit a pad with
    the mouse: it flashes and makes a sound. If the kit is silent, note whether
@@ -49,9 +53,11 @@ owning team, not something QA patches in place.
    active profile. Press `F5` again: the overlay closes. `Escape` also closes
    it.
 
-7. **Devices visible.** Open Settings (or the diagnostics block in the status
-   bar). Confirm the active audio device name, sample rate, buffer size, and
-   the MIDI device (or "none"). The values must match what Windows reports.
+7. **Devices visible.** Read the status bar: `Audio: <device> | <rate> Hz |
+   <frames> frames`. If it says `Audio unavailable: <reason>`, record the
+   reason. Open **Settings → Advanced → Show diagnostics** for the kit, load
+   state, profile, frame counter, and version. The device and format must match
+   Windows. A MIDI device name appears in Settings → MIDI, or `none`.
 
 8. **Clean exit.** Close the window with the title-bar close button and then
    press `Alt+F4` on a second launch. The process exits within two seconds, the
@@ -60,19 +66,30 @@ owning team, not something QA patches in place.
 
 9. **Diagnostics.** Note the default device, buffer, exclusive/shared mode, and
    any xrun or callback-load line the app prints. If the app has a diagnostics
-   view, capture it; otherwise copy the console output.
+   view, capture it; otherwise copy the console output. The local log also
+   records the stream start line:
+
+   ```text
+   MVP audio runtime started running=true rate=48000 format=Some(StreamFormat {
+     device_name: "Speakers (Realtek(R) Audio)", share_mode: Shared,
+     buffer_frames: ..., callback_period_frames: ... })
+   ```
+
+   Log file: `%LOCALAPPDATA%\Drumpad\Drumpad\logs\drumpad.log.<date>`.
 
 ## Pass criteria
 
 All of the following must be true:
 
 - [ ] `cargo run -p drumpad-app` launches without an error dialog or panic.
+- [ ] **The window fits the screen work area**; nothing is clipped at 100 % and
+      125 % display scaling.
 - [ ] The 4x4 grid paints and the kit name, profile, and selected pad are
       visible.
 - [ ] All 16 keyboard keys flash and play; no dropped fast hits.
 - [ ] `F1` stops all voices without a click or stuck note.
 - [ ] `F5` opens and closes the map overlay.
-- [ ] The active audio device, sample rate, and buffer are visible.
+- [ ] The status bar shows the active audio device, sample rate, and buffer.
 - [ ] Closing the window exits cleanly, and a relaunch reopens the device.
 - [ ] The run is recorded below with the default device and buffer.
 
@@ -94,10 +111,25 @@ the owning team on thread `TEAM-drumpad-qa-20261107124803-9638`.
 
 | Date | Build / commit | Default device | Mode / rate / buffer | Result | Blockers (owner) | Operator |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-11-07 | uncommitted dev build (`cargo build -p drumpad-app`, window title "Drumpad 0.1.0") | status bar off-screen; log has no device line | 48 kHz / 128 frames from defaults | **FAIL (window fit)** | window 1454x938 on a 1536x816 work area; bottom 173 px clipped, status bar not visible — app shell/UI (E08). Audio status could not be read. | MaroonCat |
 | pending | pending | pending | pending | pending | pending | pending |
+
+Headless counterpart on the same build:
+
+```powershell
+cargo test -p drumpad-tools --test mvp_effects
+# 7 passed, 0 failed (trigger/release/panic/overlay effects, 16-pad sweep,
+# status line, default 48 kHz/128-frame audio prefs)
+```
 
 ## Known limitations
 
+- **Window fit at 125 % scaling (MVP blocker, E08).** On the smoke machine the
+  window opened at 1454x938 physical pixels while the work area is 1536x816
+  (125 % display scaling, 1920x1080 panel). The bottom 173 px are off-screen,
+  so the status bar — the only place the audio device and buffer are shown —
+  cannot be read, and the bottom pad row is partially hidden. A human cannot
+  complete step 7 until this is fixed. Owner: app shell/UI, E08.
 - The physical Nitro Max and Finding keypad rows stay `pending` until the
   reference hardware is attached; the keyboard-only pass is valid but does not
   prove the Aux In chain.
