@@ -1,0 +1,3 @@
+# Choke path: pad 0 and pad 1 share choke group 1.
+0 note_on 0 100
+2400 note_on 1 120

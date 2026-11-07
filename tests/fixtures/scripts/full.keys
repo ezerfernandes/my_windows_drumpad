@@ -1,0 +1,7 @@
+# Keyboard script: pad down/up through the Finding 35-key profile.
+0    down 0
+120  down 1
+300  up   0
+480  up   1
+600  down 2
+900  up   2

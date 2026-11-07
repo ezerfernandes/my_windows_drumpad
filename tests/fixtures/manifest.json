@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "sample_rate": 48000,
+  "generated_by": "drumpad-tools 0.1.0",
+  "fixtures": [
+    {
+      "name": "choke",
+      "file": "samples/choke.wav",
+      "frames": 24000,
+      "channels": 1,
+      "sample_rate": 48000,
+      "sha256": "45b435e69b219f89a7fa8d8ff90ac4a718df0f74e5af62d0c2f92614f7a338fa"
+    },
+    {
+      "name": "gate",
+      "file": "samples/gate.wav",
+      "frames": 96000,
+      "channels": 1,
+      "sample_rate": 48000,
+      "sha256": "23909957574b356ee892c0f0e3f6d8a5de5d98664300b7f8d43688afa9209f3f"
+    },
+    {
+      "name": "hot",
+      "file": "samples/hot.wav",
+      "frames": 24000,
+      "channels": 1,
+      "sample_rate": 48000,
+      "sha256": "f766034eeba544802afc61c04f118d87f6ff5d88f1545c20135534bc495b56c1"
+    },
+    {
+      "name": "loop",
+      "file": "samples/loop.wav",
+      "frames": 256,
+      "channels": 1,
+      "sample_rate": 48000,
+      "sha256": "49c4c86155c07c3342fd3eb784339d4ea810f17eebc2da2f14384315a117c1ab"
+    },
+    {
+      "name": "one_shot",
+      "file": "samples/one_shot.wav",
+      "frames": 3840,
+      "channels": 1,
+      "sample_rate": 48000,
+      "sha256": "89b4d8b7c1da36c0d01ea26821574be61374cf04a1e5b0a01bad85138f218757"
+    },
+    {
+      "name": "pitch",
+      "file": "samples/pitch.wav",
+      "frames": 4800,
+      "channels": 1,
+      "sample_rate": 48000,
+      "sha256": "68ce980a456e3dff33c34e37af5670f30530108a55e456624b986c7bffaf3f7e"
+    }
+  ]
+}

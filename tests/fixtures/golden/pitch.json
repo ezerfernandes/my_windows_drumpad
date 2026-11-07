@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "case": "pitch",
+  "fixture": "standard",
+  "sequence": "pitch.seq",
+  "config": {
+    "sample_rate": 48000,
+    "block_frames": 128,
+    "max_voices": 256,
+    "voice_limit": 64,
+    "limiter": true,
+    "tail_frames": 9600
+  },
+  "frames": 9600,
+  "peak": 0.29471,
+  "rms": 0.093198225,
+  "peak_db": -10.6121025,
+  "rms_db": -20.611847,
+  "first_non_zero_frame": 1,
+  "last_non_zero_frame": 3203,
+  "output_sha256": "912440dfc0fc224b17bc22eb1c850c2e7fa4a33d1a371fa82fb547e4684e82ea",
+  "reference_f32": "pitch.f32",
+  "peak_db_tolerance": 0.5,
+  "rms_db_tolerance": 0.5,
+  "onset_tolerance_samples": 1
+}

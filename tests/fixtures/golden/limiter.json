@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "case": "limiter",
+  "fixture": "standard",
+  "sequence": "limiter.seq",
+  "config": {
+    "sample_rate": 48000,
+    "block_frames": 128,
+    "max_voices": 256,
+    "voice_limit": 64,
+    "limiter": true,
+    "tail_frames": 9600
+  },
+  "frames": 9856,
+  "peak": 0.9999999,
+  "rms": 0.40298596,
+  "peak_db": -0.0000010354388,
+  "rms_db": -7.8942018,
+  "first_non_zero_frame": 1,
+  "last_non_zero_frame": 9855,
+  "output_sha256": "a1892ef2de86257c45b6dbf338945506afc8276566866cf1183681ac735ef004",
+  "reference_f32": "limiter.f32",
+  "peak_db_tolerance": 0.5,
+  "rms_db_tolerance": 0.5,
+  "onset_tolerance_samples": 1
+}

@@ -1,0 +1,13 @@
+# Full MIDI script: running status, velocity-zero note-off, realtime bytes,
+# malformed data, explicit note-off, and a CC message.
+0     24 64        # data byte with no status yet -> Ignored(Malformed)
+0     90 24 64     # kick note-on
+120   90 26 50     # snare note-on
+480   24 00        # running status, velocity 0 -> kick note-off
+600   26 00        # running status, velocity 0 -> snare note-off
+720   F8           # MIDI clock, ignored
+800   80 24 40     # explicit kick note-off
+1000  90 30 70     # tom 1 note-on
+1200  B0 04 40     # hi-hat CC4
+1400  99 24 64     # note-on channel 10 (zero-based 9)
+1600  80 30 40     # tom 1 note-off

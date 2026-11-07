@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "case": "loop",
+  "fixture": "loop",
+  "sequence": "loop.seq",
+  "config": {
+    "sample_rate": 48000,
+    "block_frames": 128,
+    "max_voices": 256,
+    "voice_limit": 64,
+    "limiter": true,
+    "tail_frames": 9600
+  },
+  "frames": 17792,
+  "peak": 0.2783885,
+  "rms": 0.13414924,
+  "peak_db": -11.106974,
+  "rms_db": -17.448236,
+  "first_non_zero_frame": 1,
+  "last_non_zero_frame": 8430,
+  "output_sha256": "990e84c194e1c02000122ff036f3c0fa7216a20b6ca4e1757b4d3ea69d285337",
+  "reference_f32": "loop.f32",
+  "peak_db_tolerance": 0.5,
+  "rms_db_tolerance": 0.5,
+  "onset_tolerance_samples": 1
+}

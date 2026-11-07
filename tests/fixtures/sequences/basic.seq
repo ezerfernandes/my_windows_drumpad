@@ -1,0 +1,7 @@
+# Basic smoke sequence: one-shot, gate, loop, and release.
+0 note_on 0 100
+4800 note_on 2 90
+24000 note_off 2
+28800 note_on 3 80
+48000 all_off
+48400 panic

@@ -1,0 +1,15 @@
+# Limiter path: stack high-amplitude hits on the hot fixture and the bank.
+0 note_on 5 127
+0 note_on 6 127
+0 note_on 7 127
+0 note_on 8 127
+0 note_on 9 127
+0 note_on 10 127
+0 note_on 11 127
+0 note_on 12 127
+0 note_on 13 127
+0 note_on 14 127
+0 note_on 15 127
+64 note_on 5 127
+128 note_on 5 127
+192 note_on 5 127

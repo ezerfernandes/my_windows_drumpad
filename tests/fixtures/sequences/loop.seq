@@ -1,0 +1,3 @@
+# Loop path: start, play two loop passes, then panic.
+0 note_on 3 100
+8192 panic

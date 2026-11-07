@@ -1,0 +1,46 @@
+[package]
+name = "drumpad-tools"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+drumpad-model = { path = "../drumpad-model" }
+drumpad-samples = { path = "../drumpad-samples" }
+drumpad-engine = { path = "../drumpad-engine" }
+drumpad-input = { path = "../drumpad-input", default-features = false }
+hound = "3.5"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tempfile = "3"
+thiserror = "2"
+
+[dev-dependencies]
+criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
+drumpad-app = { path = "../drumpad-app" }
+
+[[bin]]
+name = "offline_render"
+path = "src/bin/offline_render.rs"
+
+[[bin]]
+name = "latency_report"
+path = "src/bin/latency_report.rs"
+
+[[bin]]
+name = "latency_probe"
+path = "src/bin/latency_probe.rs"
+
+[[bin]]
+name = "fixture_gen"
+path = "src/bin/fixture_gen.rs"
+
+[[bin]]
+name = "soak"
+path = "src/bin/soak.rs"
+
+[[bench]]
+name = "audio"
+harness = false

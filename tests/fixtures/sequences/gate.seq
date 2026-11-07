@@ -1,0 +1,3 @@
+# Gate path: hold for 0.5 s, then release.
+0 note_on 2 100
+24000 note_off 2
