@@ -119,9 +119,23 @@ Headless counterpart on the same build:
 
 ```powershell
 cargo test -p drumpad-tools --test mvp_effects
-# 7 passed, 0 failed (trigger/release/panic/overlay effects, 16-pad sweep,
-# status line, default 48 kHz/128-frame audio prefs)
+# 8 passed, 0 failed (trigger/release/panic/overlay effects, 16-pad sweep,
+# status line, audio-status summary, default 48 kHz/128-frame audio prefs)
 ```
+
+Per-item result for the `070851b` interactive run:
+
+| # | Item | Result | Evidence |
+| --- | --- | --- | --- |
+| 1 | `cargo run -p drumpad-app` launches | **pass** | window `Drumpad 0.1.0`, `MainWindowTitle` set and `Responding=True`; log `Drumpad starting version="0.1.0"` |
+| 2 | 4x4 grid, kit, profile, selected pad | **pass** (grid) / **fail** (window fit) | screenshot: 4x4 grid, "Drumpad Demo", "Finding 35-key keypad", Pad 1; window rect 1454x938 vs work area 1536x816 |
+| 3 | Demo kit installed and audio running | **pass** | log: `MVP audio runtime started running=true rate=48000 ... device_name: "Speakers (Realtek(R) Audio)" ... share_mode: Shared, buffer_frames: 1126, callback_period_frames: 512, fell_back: false` |
+| 4 | Pads `1 2 3 4 / Q W E R / A S D F / Z X C V` flash and play | **partial** | app unit test: `Digit1 -> Pad 0`, `KeyV -> Pad 15`; headless effects test: all 16 pads emit Trigger/Release. Physical flash/sound not independently verified because the camera desktop is shared |
+| 5 | `F1` panic stops voices | **partial** | headless: `[Effect::Panic, Effect::Metronome(false)]`, `panic_requests()==1`; physical F1 not independently verified |
+| 6 | `F5` toggles the keyboard map | **pass** | screenshot: "Keyboard map — Finding 35-key keypad — Click a pad to play it. Esc or F5 closes this map", opened from the real winit event path |
+| 7 | Active device, rate, buffer visible | **pass (readout exists) / blocked (off-screen)** | status-bar format `Kit: ... | Audio: <device> | <rate> Hz | <frames> frames | <voices>`; on this display it sat below the work area |
+| 8 | Clean exit and relaunch | **pass** | `WM_CLOSE` -> log `window closed; shutting down` then `Drumpad closed cleanly`; process exited; a later launch reopened the stream |
+| 9 | Diagnostics / xruns recorded | **partial** | log has device, rate, buffer, share mode, fallback flag; no xrun or callback-load line yet |
 
 ## Known limitations
 
