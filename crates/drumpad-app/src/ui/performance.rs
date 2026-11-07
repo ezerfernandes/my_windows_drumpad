@@ -1,6 +1,6 @@
 //! Performance mode: large pads, no editing chrome, and the F1-F5 transport row.
 
-use egui::{RichText, Ui, vec2};
+use egui::{RichText, Ui};
 
 use crate::app::actions::Action;
 use crate::state::AppState;
@@ -65,13 +65,22 @@ pub fn show(
 
     ui.add_space(theme.sm);
     let transport_height = theme.xl * 1.9;
-    let grid_height = (ui.available_height() - transport_height - theme.sm).max(80.0);
-    ui.allocate_ui(vec2(ui.available_width(), grid_height), |ui| {
+    let full = ui.available_rect_before_wrap();
+    let grid_rect = egui::Rect::from_min_max(
+        full.min,
+        egui::pos2(full.max.x, (full.max.y - transport_height - theme.sm).max(full.min.y + 80.0)),
+    );
+    ui.scope_builder(egui::UiBuilder::new().max_rect(grid_rect), |ui| {
         pad_grid::show(ui, theme, state, local, actions, true);
     });
-    ui.add_space(theme.sm);
-    pad_grid::transport_row(ui, theme, state, actions);
-    local.last_performance_height = grid_height;
+    let row_rect = egui::Rect::from_min_max(
+        egui::pos2(full.min.x, grid_rect.max.y + theme.sm),
+        full.max,
+    );
+    ui.scope_builder(egui::UiBuilder::new().max_rect(row_rect), |ui| {
+        pad_grid::transport_row(ui, theme, state, actions);
+    });
+    local.last_performance_height = grid_rect.height();
 }
 
 /// Draw the always-visible hint strip under the pads in Edit mode.

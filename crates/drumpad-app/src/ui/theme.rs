@@ -249,7 +249,7 @@ impl Theme {
         style.spacing.window_margin = egui::Margin::same(self.lg as i8);
         style.spacing.menu_margin = egui::Margin::same(self.sm as i8);
         ctx.set_style(style);
-        ctx.set_zoom_factor(scale.clamp(0.75, 2.0));
+        ctx.set_zoom_factor(scale.clamp(0.4, 2.0));
     }
 }
 

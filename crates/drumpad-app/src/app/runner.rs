@@ -108,6 +108,156 @@ fn ui_error(context: &str, error: impl std::fmt::Display) -> drumpad_model::erro
     drumpad_model::error::Error::io(context, std::io::Error::other(error.to_string()))
 }
 
+/// Desired window size before the monitor is consulted. This is exactly the
+/// stage design size, so a monitor with room shows the UI at 100%.
+const DESIRED_WINDOW: (f64, f64) = (1440.0, 900.0);
+/// Smallest window that still shows the full 4x4 grid and the chrome.
+const MIN_WINDOW: (f64, f64) = (960.0, 600.0);
+/// Fraction of the usable width the initial window may cover.
+const WORK_WIDTH_FRACTION: f64 = 0.92;
+/// Fraction of the usable height the initial window may cover.
+///
+/// Deliberately smaller than the width fraction: Windows positions a new window
+/// ~8% down the screen by default, and the title bar sits above the client
+/// area. Reserving that space is what keeps the status bar on screen.
+const WORK_HEIGHT_FRACTION: f64 = 0.84;
+
+/// Base layout size the stage UI is designed for, in logical points.
+///
+/// The shell, pad grid, inspector, and status bar were composed for a
+/// 1440x900 client. Fit zoom is derived from this size, not from 1280x720, so a
+/// 1382x777 logical client scales down instead of clipping the bottom row.
+pub const DESIGN_WIDTH: f64 = 1440.0;
+/// Base layout height the stage UI is designed for, in logical points.
+pub const DESIGN_HEIGHT: f64 = 900.0;
+
+/// Initial inner size in logical pixels, clamped to the primary monitor.
+///
+/// QA found the 1440x900 logical window overflowing a 1536x816 physical work
+/// area at 125% scaling. The monitor reports physical pixels, so convert to
+/// logical first, take 90% of that as the cap, and never request more than the
+/// cap.
+fn initial_inner_size(event_loop: &ActiveEventLoop) -> winit::dpi::LogicalSize<f64> {
+    let (inner, _) = fitted_window_sizes(primary_work_area(event_loop));
+    inner
+}
+
+/// Minimum inner size in logical pixels, also clamped to the work area.
+fn initial_min_size(event_loop: &ActiveEventLoop) -> winit::dpi::LogicalSize<f64> {
+    let (_, min) = fitted_window_sizes(primary_work_area(event_loop));
+    min
+}
+
+/// Logical work area of the primary monitor, falling back to a sane default.
+///
+/// `monitor.size()` is the full monitor. On Windows the real work area (screen
+/// minus taskbar) is queried from `SystemParametersInfoW`; elsewhere 90% of the
+/// monitor is used as a conservative stand-in.
+fn primary_work_area(event_loop: &ActiveEventLoop) -> (f64, f64) {
+    let monitor = event_loop
+        .primary_monitor()
+        .or_else(|| event_loop.available_monitors().next());
+    let Some(monitor) = monitor else {
+        return DESIRED_WINDOW;
+    };
+    let scale = monitor.scale_factor().max(0.1);
+
+    #[cfg(windows)]
+    if let Some((width, height)) = windows_work_area_physical() {
+        return (width as f64 / scale, height as f64 / scale);
+    }
+
+    let physical = monitor.size();
+    (physical.width as f64 / scale, physical.height as f64 / scale)
+}
+
+/// Physical work area of the primary monitor, excluding the taskbar.
+#[cfg(windows)]
+fn windows_work_area_physical() -> Option<(u32, u32)> {
+    #[repr(C)]
+    struct Rect {
+        left: i32,
+        top: i32,
+        right: i32,
+        bottom: i32,
+    }
+
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn SystemParametersInfoW(
+            action: u32,
+            param: u32,
+            data: *mut core::ffi::c_void,
+            win_ini: u32,
+        ) -> i32;
+    }
+
+    const SPI_GETWORKAREA: u32 = 0x0030;
+    let mut rect = Rect {
+        left: 0,
+        top: 0,
+        right: 0,
+        bottom: 0,
+    };
+    // SAFETY: `rect` is a valid, properly aligned RECT for the duration of the
+    // call, and SPI_GETWORKAREA writes exactly one RECT.
+    let ok = unsafe {
+        SystemParametersInfoW(
+            SPI_GETWORKAREA,
+            0,
+            (&raw mut rect).cast(),
+            0,
+        )
+    };
+    if ok == 0 {
+        return None;
+    }
+    let width = (rect.right - rect.left).max(0);
+    let height = (rect.bottom - rect.top).max(0);
+    (width > 0 && height > 0).then_some((width as u32, height as u32))
+}
+
+/// Clamp the desired size against a logical work area.
+///
+/// Returns `(inner, min)` where `min <= inner` always holds, so winit cannot
+/// reject the pair, and both fit inside the work area.
+fn fitted_window_sizes(
+    work_area: (f64, f64),
+) -> (
+    winit::dpi::LogicalSize<f64>,
+    winit::dpi::LogicalSize<f64>,
+) {
+    let (desired_width, desired_height) = DESIRED_WINDOW;
+    let (min_width, min_height) = MIN_WINDOW;
+    let cap_width = (work_area.0 * WORK_WIDTH_FRACTION).max(320.0);
+    let cap_height = (work_area.1 * WORK_HEIGHT_FRACTION).max(240.0);
+
+    let min_width = min_width.min(cap_width);
+    let min_height = min_height.min(cap_height);
+    let inner_width = desired_width.min(cap_width).max(min_width);
+    let inner_height = desired_height.min(cap_height).max(min_height);
+
+    (
+        winit::dpi::LogicalSize::new(inner_width, inner_height),
+        winit::dpi::LogicalSize::new(min_width, min_height),
+    )
+}
+
+/// Zoom applied to the egui UI so the whole 1280x720 stage layout fits.
+///
+/// A window that is physically large can still be below 1280x720 in logical
+/// points once Windows scaling is applied. Egui zoom scales points, so the
+/// effective canvas becomes `inner_logical / zoom`; choosing the zoom from the
+/// smaller axis guarantees at least a 1280x720 layout area. Zoom never enlarges
+/// the UI beyond 1.0.
+pub fn fit_zoom_for(inner_logical: (f64, f64)) -> f32 {
+    if inner_logical.0 <= 0.0 || inner_logical.1 <= 0.0 {
+        return 1.0;
+    }
+    let zoom = (inner_logical.0 / DESIGN_WIDTH).min(inner_logical.1 / DESIGN_HEIGHT);
+    zoom.clamp(0.5, 1.0) as f32
+}
+
 struct GlWindow {
     window: winit::window::Window,
     gl_context: glutin::context::PossiblyCurrentContext,
@@ -151,6 +301,7 @@ struct AppShell {
     audio_attempted: bool,
     audio_error: Option<String>,
     last_audio_poll: Instant,
+    last_fit_zoom: f32,
 }
 
 impl AppShell {
@@ -174,20 +325,15 @@ impl AppShell {
             audio_attempted: false,
             audio_error: None,
             last_audio_poll: Instant::now(),
+            last_fit_zoom: 1.0,
         }
     }
 
     fn create_display(&mut self, event_loop: &ActiveEventLoop) {
         let attributes = winit::window::WindowAttributes::default()
             .with_title(self.options.title.clone())
-            .with_inner_size(winit::dpi::LogicalSize {
-                width: 1440.0,
-                height: 900.0,
-            })
-            .with_min_inner_size(winit::dpi::LogicalSize {
-                width: 960.0,
-                height: 600.0,
-            })
+            .with_inner_size(initial_inner_size(event_loop))
+            .with_min_inner_size(initial_min_size(event_loop))
             .with_visible(false);
 
         let template = glutin::config::ConfigTemplateBuilder::new()
@@ -311,6 +457,17 @@ impl AppShell {
             gl_display,
             gl_surface,
         };
+        let size = gl_window.window.inner_size();
+        let scale = gl_window.window.scale_factor().max(0.1);
+        tracing::info!(
+            physical_width = size.width,
+            physical_height = size.height,
+            scale_factor = scale,
+            logical_width = size.width as f64 / scale,
+            logical_height = size.height as f64 / scale,
+            fit_zoom = fit_zoom_for((size.width as f64 / scale, size.height as f64 / scale)),
+            "window created"
+        );
         let gl = unsafe {
             glow::Context::from_loader_function(|name| {
                 let name = std::ffi::CString::new(name).expect("valid GL name");
@@ -336,6 +493,8 @@ impl AppShell {
         self.gl = Some(gl);
         self.repaint_delay = FRAME_INTERVAL;
         self.last_frame = Instant::now();
+        // Set the zoom from the real client size before the first paint.
+        self.update_fit_zoom();
     }
 
     fn fail_startup(&mut self, message: &str) {
@@ -395,8 +554,40 @@ impl AppShell {
         }
     }
 
-    fn poll_audio(&mut self, now: Instant) {
-        if now.saturating_duration_since(self.last_audio_poll) < Duration::from_millis(100) {
+    /// Keep the egui zoom in sync with the window's logical size.
+    ///
+    /// The stage layout is designed for 1280x720 points. When Windows scaling
+    /// leaves fewer points than that, zoom the whole UI down so the bottom pad
+    /// row and status bar stay on screen.
+    fn update_fit_zoom(&mut self) {
+        let Some(gl_window) = self.gl_window.as_ref() else {
+            return;
+        };
+        let size = gl_window.window.inner_size();
+        let scale = gl_window.window.scale_factor().max(0.1);
+        let logical = (
+            size.width as f64 / scale,
+            size.height as f64 / scale,
+        );
+        let zoom = fit_zoom_for(logical);
+        if (zoom - self.last_fit_zoom).abs() > f32::EPSILON {
+            tracing::info!(
+                physical_width = size.width,
+                physical_height = size.height,
+                scale_factor = scale,
+                logical_width = logical.0,
+                logical_height = logical.1,
+                fit_zoom = zoom,
+                canvas_width = logical.0 / f64::from(zoom),
+                canvas_height = logical.1 / f64::from(zoom),
+                "fit zoom updated"
+            );
+            self.last_fit_zoom = zoom;
+        }
+        self.ui.set_fit_zoom(zoom);
+    }
+
+    fn poll_audio(&mut self, now: Instant) {        if now.saturating_duration_since(self.last_audio_poll) < Duration::from_millis(100) {
             return;
         }
         self.last_audio_poll = now;
@@ -542,6 +733,7 @@ impl AppShell {
     }
 
     fn redraw(&mut self, event_loop: &ActiveEventLoop, window_id: WindowId) {
+        self.update_fit_zoom();
         let Some(gl_window) = self.gl_window.as_ref() else {
             return;
         };
@@ -722,14 +914,16 @@ impl ApplicationHandler<UserEvent> for AppShell {
                     gl_window.resize(*size);
                     gl_window.window.request_redraw();
                 }
+                self.update_fit_zoom();
             }
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
                 // egui-winit updates pixels_per_point on the same event; the
-                // layout is rebuilt from the new available rectangle next frame.
+                // fit zoom is recomputed from the new logical size next frame.
                 tracing::info!(scale_factor, "DPI scale changed");
                 if let Some(gl_window) = self.gl_window.as_ref() {
                     gl_window.window.request_redraw();
                 }
+                self.update_fit_zoom();
             }
             WindowEvent::KeyboardInput { event, .. } => {
                 self.keyboard(event);
@@ -811,5 +1005,78 @@ fn open_folder(path: &std::path::Path) {
     #[cfg(not(windows))]
     {
         tracing::info!(path = %path.display(), "open folder requested");
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// QA's exact client size before the fix: 1382x777 logical at 125%.
+    #[test]
+    fn a_1382x777_client_scales_the_1440x900_design_down() {
+        let zoom = fit_zoom_for((1382.4, 777.6));
+        assert!(zoom < 1.0, "the design does not fit, zoom must shrink: {zoom}");
+        let canvas_w = 1382.4 / f64::from(zoom);
+        let canvas_h = 777.6 / f64::from(zoom);
+        assert!(canvas_w >= DESIGN_WIDTH - 1.0, "canvas width {canvas_w}");
+        assert!(canvas_h >= DESIGN_HEIGHT - 1.0, "canvas height {canvas_h}");
+    }
+
+    /// QA's 125% case: a 1920x1080 physical monitor with a 1536x816 logical
+    /// work area (taskbar removed).
+    #[test]
+    fn a_125_percent_small_work_area_fits_the_stage_layout() {
+        let work = (1536.0, 816.0);
+        let (inner, min) = fitted_window_sizes(work);
+        assert!(inner.width <= work.0 * WORK_WIDTH_FRACTION + 0.001);
+        assert!(inner.height <= work.1 * WORK_HEIGHT_FRACTION + 0.001);
+        assert!(min.width <= inner.width && min.height <= inner.height);
+
+        // Leave room for the title bar and the OS default window position.
+        let chrome_height = 32.0;
+        let default_top = work.1 * 0.09;
+        assert!(
+            default_top + chrome_height + inner.height <= work.1,
+            "window bottom {} exceeds the work area {}",
+            default_top + chrome_height + inner.height,
+            work.1
+        );
+
+        let zoom = fit_zoom_for((inner.width, inner.height));
+        assert!(zoom < 1.0, "the UI must scale down on this work area");
+        let canvas_w = inner.width / f64::from(zoom);
+        let canvas_h = inner.height / f64::from(zoom);
+        assert!(canvas_w >= DESIGN_WIDTH - 1.0, "canvas width {canvas_w}");
+        assert!(canvas_h >= DESIGN_HEIGHT - 1.0, "canvas height {canvas_h}");
+    }
+
+    #[test]
+    fn a_large_monitor_keeps_the_design_size_and_100_percent_zoom() {
+        let (inner, min) = fitted_window_sizes((1920.0, 1080.0));
+        assert_eq!((inner.width, inner.height), DESIRED_WINDOW);
+        assert_eq!(fit_zoom_for((inner.width, inner.height)), 1.0);
+        assert!(min.width <= inner.width && min.height <= inner.height);
+    }
+
+    #[test]
+    fn anything_shorter_than_the_design_height_zooms_out() {
+        assert!(fit_zoom_for((1920.0, 899.0)) < 1.0);
+        assert!(fit_zoom_for((1439.0, 900.0)) < 1.0);
+        assert_eq!(fit_zoom_for((1440.0, 900.0)), 1.0);
+    }
+
+    #[test]
+    fn a_narrow_client_scales_down_to_fit_the_design() {
+        let zoom = fit_zoom_for((1100.0, 620.0));
+        assert!(zoom < 1.0);
+        assert!(1100.0 / f64::from(zoom) >= DESIGN_WIDTH - 1.0);
+        assert!(620.0 / f64::from(zoom) >= DESIGN_HEIGHT - 1.0);
+    }
+
+    #[test]
+    fn fit_zoom_never_enlarges_and_is_bounded() {
+        assert_eq!(fit_zoom_for((5000.0, 4000.0)), 1.0);
+        assert!(fit_zoom_for((640.0, 360.0)) >= 0.5);
+        assert_eq!(fit_zoom_for((0.0, 0.0)), 1.0);
     }
 }

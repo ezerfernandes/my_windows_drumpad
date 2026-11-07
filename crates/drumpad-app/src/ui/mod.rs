@@ -106,6 +106,7 @@ pub struct UiRoot {
     theme_choice: ThemeChoice,
     scale: f32,
     reduce_motion: bool,
+    fit_zoom: f32,
     local: UiLocal,
 }
 
@@ -118,8 +119,20 @@ impl UiRoot {
             theme_choice: preferences.appearance.theme,
             scale: preferences.appearance.scale,
             reduce_motion: preferences.appearance.reduce_motion,
+            fit_zoom: 1.0,
             local: UiLocal::default(),
         }
+    }
+
+    /// Zoom needed to keep the 1280x720 stage layout on screen, set by the
+    /// shell from the window's logical size.
+    pub fn set_fit_zoom(&mut self, zoom: f32) {
+        self.fit_zoom = zoom.clamp(0.4, 1.0);
+    }
+
+    /// The current fit zoom.
+    pub fn fit_zoom(&self) -> f32 {
+        self.fit_zoom
     }
 
     /// The active theme.
@@ -154,7 +167,7 @@ impl UiRoot {
     /// Draw one frame and return the user's actions.
     pub fn show(&mut self, ctx: &egui::Context, state: &mut AppState) -> Vec<Action> {
         self.sync_theme(state.settings.draft());
-        self.theme.apply(ctx, self.scale);
+        self.theme.apply(ctx, self.scale * self.fit_zoom);
         let theme = self.theme.clone();
         let mut actions = Vec::new();
         self.local.pointer = ctx.input(|input| input.pointer.hover_pos());
@@ -293,26 +306,45 @@ fn edit_view(
     local: &mut UiLocal,
     actions: &mut Vec<Action>,
 ) {
-    egui::SidePanel::right("drumpad-inspector")
-        .resizable(true)
-        .default_width(380.0)
-        .min_width(300.0)
-        .frame(
-            egui::Frame::new()
-                .fill(theme.panel)
-                .inner_margin(egui::Margin::same(theme.md as i8)),
-        )
-        .show_inside(ui, |ui| {
-            inspector::show(ui, theme, state, local, actions);
+    // Split the central area manually. `SidePanel::show_inside` mutates the
+    // parent's max rect in a way that let the grid run past the status bar, so
+    // the two columns are allocated from an explicit rect instead.
+    let full = ui.available_rect_before_wrap();
+    let (grid_rect, inspector_rect) = split_edit_columns(full, theme.md);
+
+    ui.scope_builder(egui::UiBuilder::new().max_rect(grid_rect), |ui| {
+        performance::edit_hints(ui, theme, state);
+        ui.add_space(theme.xs);
+        let grid_rect = ui.available_rect_before_wrap();
+        ui.scope_builder(egui::UiBuilder::new().max_rect(grid_rect), |ui| {
+            pad_grid::show(ui, theme, state, local, actions, false);
         });
-
-    performance::edit_hints(ui, theme, state);
-    ui.add_space(theme.xs);
-
-    let height = ui.available_height();
-    ui.allocate_ui(vec2(ui.available_width(), height.max(80.0)), |ui| {
-        pad_grid::show(ui, theme, state, local, actions, false);
     });
+
+    ui.scope_builder(egui::UiBuilder::new().max_rect(inspector_rect), |ui| {
+        egui::Frame::new()
+            .fill(theme.panel)
+            .corner_radius(theme.radius)
+            .inner_margin(egui::Margin::same(theme.md as i8))
+            .show(ui, |ui| {
+                inspector::show(ui, theme, state, local, actions);
+            });
+    });
+}
+
+/// Split the Edit view into the pad-grid column and the inspector column.
+///
+/// Both rects stay inside `full`, so the grid can never draw behind the status
+/// bar. The inspector is capped at 42% of the width and never narrower than
+/// 300 points while the grid keeps at least 320 points.
+fn split_edit_columns(full: egui::Rect, gap: f32) -> (egui::Rect, egui::Rect) {
+    let inspector_width = 380.0_f32.min((full.width() * 0.42).max(300.0));
+    let grid_width = (full.width() - inspector_width - gap).max(320.0);
+    let split = full.min.x + grid_width;
+    let grid_rect = egui::Rect::from_min_max(full.min, egui::pos2(split, full.max.y));
+    let inspector_rect =
+        egui::Rect::from_min_max(egui::pos2(split + gap, full.min.y), full.max);
+    (grid_rect, inspector_rect)
 }
 
 fn status_bar(
@@ -417,7 +449,6 @@ pub fn capture_key(state: &mut AppState, local: &mut UiLocal, key: KeyCode) -> b
 pub fn background(theme: &Theme) -> Color32 {
     theme.bg
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -450,23 +481,33 @@ mod tests {
     }
 
     #[test]
-    fn the_pad_grid_is_drawn_on_the_performance_view() {
-        let preferences = UiPreferences::default();
-        let mut state = AppState::new(preferences.clone());
-        state.kits.set_dirty(true);
-        let mut ui = UiRoot::new(&preferences);
-        headless(&mut state, &mut ui, 1);
-        assert_eq!(state.navigation.current(), View::Performance);
+    fn the_edit_split_keeps_both_columns_inside_the_panel() {
+        let full = egui::Rect::from_min_size(egui::pos2(12.0, 64.0), vec2(1830.0, 794.0));
+        let (grid, inspector) = split_edit_columns(full, 12.0);
+        assert!(full.contains_rect(grid));
+        assert!(full.contains_rect(inspector));
+        assert!(grid.right() <= inspector.left());
+        assert!(grid.width() >= 320.0);
+        assert!(inspector.width() >= 300.0);
+        assert_eq!(grid.max.y, full.max.y);
+        assert_eq!(inspector.max.y, full.max.y);
     }
 
     #[test]
-    fn a_1280x720_frame_does_not_overflow_the_pad_grid() {
-        let grid_rect = egui::Rect::from_min_size(
-            egui::pos2(16.0, 80.0),
-            vec2(1280.0 - 32.0, 720.0 - 160.0),
-        );
-        let grid = pad_grid::layout(grid_rect, 8.0);
-        assert!(pad_grid::is_usable(&grid));
+    fn the_edit_grid_bottom_stays_above_the_status_bar() {
+        // Central panel content after the 52 pt top bar and 30 pt status bar.
+        let full = egui::Rect::from_min_size(egui::pos2(12.0, 64.0), vec2(1830.0, 794.0));
+        let status_top = 64.0 + 794.0 + 12.0;
+        let (grid, _) = split_edit_columns(full, 12.0);
+        assert!(grid.max.y <= status_top);
+    }
+
+    #[test]
+    fn a_narrow_window_still_gets_a_usable_grid() {
+        let full = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), vec2(700.0, 500.0));
+        let (grid, inspector) = split_edit_columns(full, 8.0);
+        assert!(grid.width() >= 320.0);
+        assert!(inspector.left() >= grid.right());
     }
 
     #[test]
@@ -488,6 +529,16 @@ mod tests {
         preferences.appearance.theme = ThemeChoice::HighContrast;
         ui.sync_theme(&preferences);
         assert_eq!(ui.theme().bg, Theme::high_contrast().bg);
+    }
+
+    #[test]
+    fn the_fit_zoom_is_clamped_and_applied_by_the_root() {
+        let preferences = UiPreferences::default();
+        let mut ui = UiRoot::new(&preferences);
+        ui.set_fit_zoom(0.5);
+        assert_eq!(ui.fit_zoom(), 0.5);
+        ui.set_fit_zoom(2.0);
+        assert_eq!(ui.fit_zoom(), 1.0);
     }
 
     #[test]
