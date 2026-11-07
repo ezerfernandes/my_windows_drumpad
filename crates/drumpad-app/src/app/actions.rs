@@ -47,10 +47,19 @@ pub enum Action {
     },
     /// Switch keyboard profile.
     SetProfile(ProfileId),
+    /// Change the pad surface size (4x4 or 3x3), live.
+    SetGridSize(crate::state::prefs::GridSize),
     /// Search the kit list.
     SetKitSearch(String),
     /// Create a kit.
     CreateKit(String),
+    /// Create a new kit from every supported audio file in a folder.
+    CreateKitFromFolder {
+        /// New kit name.
+        name: String,
+        /// Folder to scan.
+        folder: PathBuf,
+    },
     /// Duplicate a kit.
     DuplicateKit(KitId),
     /// Rename a kit.
@@ -177,8 +186,13 @@ pub fn dispatch(state: &mut AppState, action: Action) -> Vec<Effect> {
             vec![]
         }
         Action::MoveSelection { d_row, d_col } => {
-            state.pads.move_selection(d_row, d_col);
+            let grid = state.grid_size();
+            state.pads.move_selection_in(grid, d_row, d_col);
             state.select_pad(state.pads.selected());
+            vec![]
+        }
+        Action::SetGridSize(grid) => {
+            state.set_grid_size(grid);
             vec![]
         }
         Action::SetProfile(id) => {
@@ -199,10 +213,23 @@ pub fn dispatch(state: &mut AppState, action: Action) -> Vec<Effect> {
             Ok(request) => vec![Effect::Kit(request)],
             Err(error) => report_kit_error(state, &error),
         },
-        Action::DuplicateKit(kit) => match state.kits.duplicate(kit) {
-            Ok(request) => vec![Effect::Kit(request)],
-            Err(error) => report_kit_error(state, &error),
-        },
+        Action::CreateKitFromFolder { name, folder } => {
+            if name.trim().is_empty() {
+                state
+                    .notifications
+                    .warning("Give the new kit a name first.");
+                vec![]
+            } else if !folder.is_dir() {
+                state.notifications.warning(format!(
+                    "{} is not a folder. Enter the path to a sample folder.",
+                    folder.display()
+                ));
+                vec![]
+            } else {
+                vec![Effect::ImportKit { name, folder }]
+            }
+        }
+        Action::DuplicateKit(kit) => vec![Effect::DuplicateKit(kit)],
         Action::RenameKit { kit, name } => match state.kits.rename(kit, name) {
             Ok(request) => vec![Effect::Kit(request)],
             Err(error) => report_kit_error(state, &error),
@@ -260,7 +287,9 @@ pub fn dispatch(state: &mut AppState, action: Action) -> Vec<Effect> {
         },
         Action::CommitInspector => match state.commit_inspector() {
             Ok(pad) => {
-                state.notifications.success(format!("Pad {} updated.", pad.number()));
+                state
+                    .notifications
+                    .success(format!("Pad {} updated.", pad.number()));
                 vec![Effect::PadSettingsChanged(pad)]
             }
             Err(error) => {
@@ -290,24 +319,20 @@ pub fn dispatch(state: &mut AppState, action: Action) -> Vec<Effect> {
                 }
             }
         }
-        Action::UndoEdit => {
-            match state.undo_edit() {
-                Some(label) => {
-                    state.notifications.info(format!("Undid {label}"));
-                    vec![Effect::WaveformChanged]
-                }
-                None => vec![],
+        Action::UndoEdit => match state.undo_edit() {
+            Some(label) => {
+                state.notifications.info(format!("Undid {label}"));
+                vec![Effect::WaveformChanged]
             }
-        }
-        Action::RedoEdit => {
-            match state.redo_edit() {
-                Some(label) => {
-                    state.notifications.info(format!("Redid {label}"));
-                    vec![Effect::WaveformChanged]
-                }
-                None => vec![],
+            None => vec![],
+        },
+        Action::RedoEdit => match state.redo_edit() {
+            Some(label) => {
+                state.notifications.info(format!("Redid {label}"));
+                vec![Effect::WaveformChanged]
             }
-        }
+            None => vec![],
+        },
         Action::ResetEdit => {
             let Some(editor) = state.editor.as_mut() else {
                 return vec![];
@@ -350,10 +375,9 @@ pub fn dispatch(state: &mut AppState, action: Action) -> Vec<Effect> {
                 state.notifications.success("Settings saved.");
                 let mut effects = vec![Effect::PersistPreferences(Box::new(preferences))];
                 if !reasons.is_empty() {
-                    state.notifications.info(format!(
-                        "Restart required for {} change(s).",
-                        reasons.len()
-                    ));
+                    state
+                        .notifications
+                        .info(format!("Restart required for {} change(s).", reasons.len()));
                 }
                 // A new scale takes effect immediately in the next frame.
                 effects.push(Effect::PreferencesChanged);
@@ -440,7 +464,9 @@ pub fn dispatch(state: &mut AppState, action: Action) -> Vec<Effect> {
         Action::UndoDrop => {
             match state.dragdrop.undo_assignment(&mut state.pads) {
                 Some(pads) => {
-                    state.notifications.info(format!("Restored {} pad(s).", pads.len()));
+                    state
+                        .notifications
+                        .info(format!("Restored {} pad(s).", pads.len()));
                 }
                 None => {
                     state.notifications.warning("There is no drop to undo.");
@@ -526,7 +552,10 @@ fn ask_unsaved_changes(state: &mut AppState, continue_intent: DialogIntent) {
         "The current kit has edits that are not saved.",
         DialogAction::new(DialogIntent::SaveAndContinue),
     )
-    .with_action(DialogAction::labelled(continue_intent, "Discard and continue"))
+    .with_action(DialogAction::labelled(
+        continue_intent,
+        "Discard and continue",
+    ))
     .with_action(DialogAction::new(DialogIntent::Cancel))
     .blocking();
     dialog.id = 0;
@@ -675,7 +704,10 @@ mod tests {
     fn kit_create_surfaces_a_request_and_a_duplicate_name_is_a_toast() {
         let mut state = state();
         let effects = dispatch(&mut state, Action::CreateKit("Live".to_owned()));
-        assert!(matches!(effects.as_slice(), [Effect::Kit(KitRequest::Create(_))]));
+        assert!(matches!(
+            effects.as_slice(),
+            [Effect::Kit(KitRequest::Create(_))]
+        ));
         assert_eq!(state.kits.len(), 2);
 
         let effects = dispatch(&mut state, Action::CreateKit("live".to_owned()));
@@ -688,7 +720,13 @@ mod tests {
     fn switching_kits_with_unsaved_changes_asks_before_discarding() {
         let mut state = state();
         dispatch(&mut state, Action::CreateKit("Two".to_owned()));
-        let second = state.kits.kits().iter().find(|kit| kit.name == "Two").expect("two").id;
+        let second = state
+            .kits
+            .kits()
+            .iter()
+            .find(|kit| kit.name == "Two")
+            .expect("two")
+            .id;
         state.kits.set_dirty(true);
         let effects = dispatch(&mut state, Action::LoadKit(second));
         assert!(effects.is_empty());
@@ -701,10 +739,19 @@ mod tests {
     fn discarding_from_the_prompt_starts_the_kit_load() {
         let mut state = state();
         dispatch(&mut state, Action::CreateKit("Two".to_owned()));
-        let second = state.kits.kits().iter().find(|kit| kit.name == "Two").expect("two").id;
+        let second = state
+            .kits
+            .kits()
+            .iter()
+            .find(|kit| kit.name == "Two")
+            .expect("two")
+            .id;
         state.kits.set_dirty(true);
         dispatch(&mut state, Action::LoadKit(second));
-        let effects = dispatch(&mut state, Action::ChooseDialog(DialogIntent::DiscardChanges));
+        let effects = dispatch(
+            &mut state,
+            Action::ChooseDialog(DialogIntent::DiscardChanges),
+        );
         assert_eq!(effects, vec![Effect::Kit(KitRequest::Load(second))]);
         assert!(state.notifications.dialog().is_none());
     }
@@ -719,7 +766,13 @@ mod tests {
             Some(Effect::PersistPreferences(_))
         ));
         assert!(effects.contains(&Effect::PreferencesChanged));
-        assert!(state.notifications.toasts().iter().any(|toast| toast.message.contains("saved")));
+        assert!(
+            state
+                .notifications
+                .toasts()
+                .iter()
+                .any(|toast| toast.message.contains("saved"))
+        );
     }
 
     #[test]
@@ -754,7 +807,10 @@ mod tests {
         );
         assert!(state.dragdrop.is_confirming());
         dispatch(&mut state, Action::ConfirmDrop);
-        assert_eq!(state.pads.get(PadId::new(2)).sample.as_deref(), Some("kick.wav"));
+        assert_eq!(
+            state.pads.get(PadId::new(2)).sample.as_deref(),
+            Some("kick.wav")
+        );
         dispatch(&mut state, Action::UndoDrop);
         assert_eq!(state.pads.get(PadId::new(2)).sample, None);
     }
@@ -770,7 +826,13 @@ mod tests {
             },
         );
         assert!(!state.dragdrop.is_confirming());
-        assert!(state.notifications.toasts().iter().any(|toast| toast.message.contains("No supported")));
+        assert!(
+            state
+                .notifications
+                .toasts()
+                .iter()
+                .any(|toast| toast.message.contains("No supported"))
+        );
         assert!(state.pads.iter().all(|pad| pad.sample.is_none()));
     }
 
@@ -779,14 +841,17 @@ mod tests {
         let mut state = state();
         dispatch(&mut state, Action::CreateKit("Two".to_owned()));
         let effects = dispatch(&mut state, Action::Transport(TransportAction::NextKit));
-        assert!(matches!(effects.as_slice(), [Effect::Kit(KitRequest::Load(_))]));
+        assert!(matches!(
+            effects.as_slice(),
+            [Effect::Kit(KitRequest::Load(_))]
+        ));
     }
 
     #[test]
     fn selecting_a_profile_relabels_every_pad() {
         let mut state = state();
         dispatch(&mut state, Action::SetProfile(ProfileId(1)));
-        assert_eq!(state.pads.get(PadId::new(0)).key_label, "1");
+        assert_eq!(state.pads.get(PadId::new(0)).key_label, "Q");
         assert_eq!(state.profile().name, "Full keyboard");
     }
 
@@ -828,7 +893,10 @@ mod tests {
         );
         let dialog = state.notifications.dialog().expect("dialog");
         assert!(dialog.action(DialogIntent::OpenLogFolder).is_some());
-        let effects = dispatch(&mut state, Action::ChooseDialog(DialogIntent::OpenLogFolder));
+        let effects = dispatch(
+            &mut state,
+            Action::ChooseDialog(DialogIntent::OpenLogFolder),
+        );
         assert_eq!(effects, vec![Effect::OpenLogFolder]);
     }
 }

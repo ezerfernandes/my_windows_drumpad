@@ -120,7 +120,9 @@ impl fmt::Display for KitError {
             Self::EmptyName => formatter.write_str("kit name cannot be empty"),
             Self::DuplicateName(name) => write!(formatter, "a kit named {name:?} already exists"),
             Self::UnknownKit(id) => write!(formatter, "kit {id} does not exist"),
-            Self::FactoryReadOnly(id) => write!(formatter, "kit {id} is a factory kit and cannot be deleted"),
+            Self::FactoryReadOnly(id) => {
+                write!(formatter, "kit {id} is a factory kit and cannot be deleted")
+            }
             Self::LastKit => formatter.write_str("at least one kit must remain"),
             Self::Busy => formatter.write_str("a kit load is already running"),
             Self::LoadFailed => formatter.write_str("a kit load failed; retry or dismiss it first"),
@@ -242,6 +244,38 @@ impl KitBrowser {
         }
     }
 
+    /// Replace the catalogue from the real kit library.
+    ///
+    /// UI ids are session-local; the shell maps them to model ids after every
+    /// refresh. The active row is matched by name, and any parked prompt is
+    /// cleared because the action it referred to may no longer exist.
+    pub fn replace_catalogue(&mut self, entries: &[(String, bool)], active_name: Option<&str>) {
+        self.kits.clear();
+        self.pending = None;
+        for (name, factory) in entries {
+            self.insert(name, None, *factory);
+        }
+        self.active = active_name
+            .and_then(|name| {
+                self.kits
+                    .iter()
+                    .find(|kit| kit.name == name)
+                    .map(|kit| kit.id)
+            })
+            .or_else(|| self.kits.first().map(|kit| kit.id));
+        self.load = match self.active {
+            Some(kit) => LoadStatus::Ready { kit },
+            None => LoadStatus::Idle,
+        };
+    }
+
+    /// The active kit's name.
+    pub fn active_name(&self) -> Option<&str> {
+        self.active
+            .and_then(|id| self.get(id))
+            .map(|kit| kit.name.as_str())
+    }
+
     /// Whether the active kit has unsaved changes.
     pub fn has_unsaved_changes(&self) -> bool {
         self.active
@@ -315,7 +349,11 @@ impl KitBrowser {
             return Err(KitError::LastKit);
         }
 
-        let index = self.kits.iter().position(|kit| kit.id == id).expect("exists");
+        let index = self
+            .kits
+            .iter()
+            .position(|kit| kit.id == id)
+            .expect("exists");
         self.kits.remove(index);
         if self.active == Some(id) {
             // Prefer the next kit, otherwise the previous one. Either keeps the
@@ -382,7 +420,10 @@ impl KitBrowser {
 
     /// Start loading a kit.
     pub fn start_load(&mut self, id: KitId) -> KitRequest {
-        self.load = LoadStatus::Loading { kit: id, percent: 0 };
+        self.load = LoadStatus::Loading {
+            kit: id,
+            percent: 0,
+        };
         KitRequest::Load(id)
     }
 
@@ -479,10 +520,7 @@ mod tests {
         let browser = KitBrowser::with_factory_kit();
         let active = browser.active().expect("active");
         assert_eq!(browser.get(active).expect("kit").name, "Default Kit");
-        assert_eq!(
-            browser.load_status(),
-            &LoadStatus::Ready { kit: active }
-        );
+        assert_eq!(browser.load_status(), &LoadStatus::Ready { kit: active });
         assert_eq!(browser.kits().len(), 1);
     }
 
@@ -547,7 +585,10 @@ mod tests {
     fn the_last_kit_cannot_be_deleted() {
         let mut browser = KitBrowser::with_factory_kit();
         let active = browser.active().expect("active");
-        assert_eq!(browser.delete(active), Err(KitError::FactoryReadOnly(active)));
+        assert_eq!(
+            browser.delete(active),
+            Err(KitError::FactoryReadOnly(active))
+        );
 
         let mut browser = KitBrowser::new();
         let only = match browser.create("Only").expect("create") {
@@ -562,7 +603,11 @@ mod tests {
         let browser = KitBrowser::with_factory_kit();
         let active = browser.active().expect("active");
         assert_eq!(
-            browser.kits().iter().find(|kit| kit.id == active).map(|kit| kit.factory),
+            browser
+                .kits()
+                .iter()
+                .find(|kit| kit.id == active)
+                .map(|kit| kit.factory),
             Some(true)
         );
     }
@@ -578,9 +623,16 @@ mod tests {
         browser.set_dirty(true);
         assert_eq!(browser.request_switch(second).expect("request"), None);
         assert_eq!(browser.pending(), Some(PendingAction::Switch(second)));
-        assert_eq!(browser.active(), Some(first), "the old kit stays active until confirmed");
+        assert_eq!(
+            browser.active(),
+            Some(first),
+            "the old kit stays active until confirmed"
+        );
 
-        let request = browser.confirm_pending().expect("confirm").expect("request");
+        let request = browser
+            .confirm_pending()
+            .expect("confirm")
+            .expect("request");
         assert_eq!(request, KitRequest::Load(second));
         assert!(!browser.has_unsaved_changes());
     }
@@ -607,7 +659,10 @@ mod tests {
             KitRequest::Create(id) => id,
             other => panic!("unexpected {other:?}"),
         };
-        let request = browser.request_switch(second).expect("request").expect("load");
+        let request = browser
+            .request_switch(second)
+            .expect("request")
+            .expect("load");
         assert_eq!(request, KitRequest::Load(second));
         assert!(browser.load_status().is_loading());
 
@@ -647,7 +702,11 @@ mod tests {
                 message: "sample kick.wav is missing".to_owned()
             }
         );
-        assert_eq!(browser.active(), Some(first), "a failed load leaves the old kit intact");
+        assert_eq!(
+            browser.active(),
+            Some(first),
+            "a failed load leaves the old kit intact"
+        );
 
         let retry = browser.retry().expect("retry");
         assert_eq!(retry, KitRequest::Load(second));
@@ -695,6 +754,9 @@ mod tests {
     fn unknown_kits_are_rejected() {
         let mut browser = KitBrowser::with_factory_kit();
         let ghost = KitId(999);
-        assert_eq!(browser.request_switch(ghost), Err(KitError::UnknownKit(ghost)));
+        assert_eq!(
+            browser.request_switch(ghost),
+            Err(KitError::UnknownKit(ghost))
+        );
     }
 }

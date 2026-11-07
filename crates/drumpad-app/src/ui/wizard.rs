@@ -3,13 +3,13 @@
 use egui::{Align2, RichText, Ui, vec2};
 
 use crate::app::actions::Action;
+use crate::state::AppState;
 use crate::state::keymap::KeyboardProfile;
 use crate::state::prefs::{BUFFER_SIZES, SAMPLE_RATES};
 use crate::state::wizard::WizardStep;
-use crate::state::AppState;
 
-use super::theme::Theme;
 use super::UiLocal;
+use super::theme::Theme;
 
 /// Draw the wizard when it is active.
 pub fn show(
@@ -134,7 +134,11 @@ fn welcome(ui: &mut Ui, theme: &Theme) {
                     .color(theme.accent)
                     .size(theme.body),
             );
-            ui.label(RichText::new(step.title()).color(theme.text).size(theme.body));
+            ui.label(
+                RichText::new(step.title())
+                    .color(theme.text)
+                    .size(theme.body),
+            );
             ui.label(
                 RichText::new("can be skipped")
                     .color(theme.text_disabled)
@@ -152,13 +156,9 @@ fn keyboard(ui: &mut Ui, theme: &Theme, state: &mut AppState, actions: &mut Vec<
             [ui.available_width(), 46.0],
             egui::Button::selectable(
                 selected,
-                RichText::new(format!(
-                    "{}  -  {}",
-                    profile.name,
-                    profile.kind.label()
-                ))
-                .color(if selected { theme.accent } else { theme.text })
-                .size(theme.body),
+                RichText::new(format!("{}  -  {}", profile.name, profile.kind.label()))
+                    .color(if selected { theme.accent } else { theme.text })
+                    .size(theme.body),
             ),
         );
         if response.clicked() {

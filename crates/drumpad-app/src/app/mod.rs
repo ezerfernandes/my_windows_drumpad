@@ -16,7 +16,9 @@
 
 pub mod actions;
 pub mod hotkeys;
+pub mod kits;
 pub mod runner;
 
 pub use actions::{Action, dispatch};
+pub use kits::KitService;
 pub use runner::{AppOptions, FRAME_INTERVAL, UserEvent, run, run_default};

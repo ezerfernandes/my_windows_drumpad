@@ -15,7 +15,8 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 use winit::keyboard::KeyCode;
 
-use super::pad::{PadId, PAD_COUNT};
+use super::pad::{PAD_COUNT, PadId};
+use super::prefs::GridSize;
 
 /// Transport actions available on F1-F5 in the Finding layout.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -150,6 +151,9 @@ pub struct KeyboardProfile {
     pub transport_keys: [KeyCode; 5],
     /// Keys that are deliberately left unmapped on this device.
     pub unmapped_keys: Vec<KeyCode>,
+    /// Pad surface size this profile routes.
+    #[serde(default)]
+    pub grid: GridSize,
 }
 
 /// The 16 pad keys shared by both reference profiles: `1 2 3 4`, `Q W E R`,
@@ -171,6 +175,19 @@ pub const GRID_KEYS: [KeyCode; PAD_COUNT] = [
     KeyCode::KeyX,
     KeyCode::KeyC,
     KeyCode::KeyV,
+];
+
+/// The nine 3x3 pad keys: `Q W E`, `A S D`, `Z X C`, row-major.
+pub const GRID_KEYS_3X3: [KeyCode; 9] = [
+    KeyCode::KeyQ,
+    KeyCode::KeyW,
+    KeyCode::KeyE,
+    KeyCode::KeyA,
+    KeyCode::KeyS,
+    KeyCode::KeyD,
+    KeyCode::KeyZ,
+    KeyCode::KeyX,
+    KeyCode::KeyC,
 ];
 
 /// Transport keys for the reference profiles.
@@ -202,6 +219,7 @@ impl KeyboardProfile {
             pad_keys: GRID_KEYS,
             transport_keys: TRANSPORT_KEYS,
             unmapped_keys: Vec::new(),
+            grid: GridSize::FourByFour,
         }
     }
 
@@ -214,7 +232,28 @@ impl KeyboardProfile {
             pad_keys: GRID_KEYS,
             transport_keys: TRANSPORT_KEYS,
             unmapped_keys: FINDING_UNMAPPED.to_vec(),
+            grid: GridSize::FourByFour,
         }
+    }
+
+    /// Resize the pad surface to `grid`, rewriting the pad keys for that
+    /// surface and keeping the profile identity, transport keys, and device kind.
+    pub fn with_grid(mut self, grid: GridSize) -> Self {
+        self.grid = grid;
+        match grid {
+            GridSize::FourByFour => {
+                self.pad_keys = GRID_KEYS;
+            }
+            GridSize::ThreeByThree => {
+                self.pad_keys[..9].copy_from_slice(&GRID_KEYS_3X3);
+            }
+        }
+        self
+    }
+
+    /// Number of pads this profile routes.
+    pub fn pad_count(&self) -> usize {
+        self.grid.pad_count()
     }
 
     /// Every built-in profile.
@@ -224,12 +263,17 @@ impl KeyboardProfile {
 
     /// Look up a built-in profile by id.
     pub fn builtin(id: ProfileId) -> Option<Self> {
-        Self::builtins().into_iter().find(|profile| profile.id == id)
+        Self::builtins()
+            .into_iter()
+            .find(|profile| profile.id == id)
     }
 
     /// Resolve the action for `key` on key down.
     pub fn action_for(&self, key: KeyCode) -> KeyAction {
-        if let Some(index) = self.pad_keys.iter().position(|candidate| *candidate == key) {
+        if let Some(index) = self.pad_keys[..self.pad_count()]
+            .iter()
+            .position(|candidate| *candidate == key)
+        {
             return KeyAction::Pad(PadId::new(index));
         }
         if let Some(index) = self
@@ -249,13 +293,13 @@ impl KeyboardProfile {
 
     /// The pad bound to `key`, if any.
     pub fn pad_for(&self, key: KeyCode) -> Option<PadId> {
-        self.pad_keys
+        self.pad_keys[..self.pad_count()]
             .iter()
             .position(|candidate| *candidate == key)
             .map(PadId::new)
     }
 
-    /// Labels for all 16 pads, used by [`super::pad::Pads::set_key_labels`].
+    /// Labels for all 16 pads; only the first `pad_count()` are on the surface.
     pub fn pad_labels(&self) -> [String; PAD_COUNT] {
         std::array::from_fn(|index| key_label(self.pad_keys[index]))
     }
@@ -263,6 +307,9 @@ impl KeyboardProfile {
     /// Replace the binding for one pad, rejecting a key already used by another
     /// pad or by a transport action.
     pub fn rebind_pad(&mut self, id: PadId, key: KeyCode) -> Result<(), BindingConflict> {
+        if id.index() >= self.pad_count() {
+            return Err(BindingConflict::OutsideSurface { pad: id });
+        }
         if let Some(other) = self.pad_for(key)
             && other != id
         {
@@ -285,17 +332,21 @@ impl KeyboardProfile {
 
     /// Reset every pad binding to the reference grid, keeping the profile id.
     pub fn reset_bindings(&mut self) {
-        self.pad_keys = GRID_KEYS;
-        self.transport_keys = TRANSPORT_KEYS;
+        let grid = self.grid;
+        let mut refreshed = self.clone().with_grid(grid);
+        refreshed.transport_keys = TRANSPORT_KEYS;
+        *self = refreshed;
     }
 
     /// Sections shown by the keyboard map overlay.
     pub fn chart(&self) -> Vec<ChartSection> {
-        let mut pad_rows = Vec::with_capacity(4);
-        for row in 0..4 {
-            let mut keys = Vec::with_capacity(4);
-            for column in 0..4 {
-                let index = row * 4 + column;
+        let columns = self.grid.columns();
+        let rows = self.grid.rows();
+        let mut pad_rows = Vec::with_capacity(rows);
+        for row in 0..rows {
+            let mut keys = Vec::with_capacity(columns);
+            for column in 0..columns {
+                let index = row * columns + column;
                 let key = self.pad_keys[index];
                 keys.push(ChartKey {
                     key,
@@ -371,6 +422,11 @@ pub enum BindingConflict {
         /// The transport action that owns it.
         action: TransportAction,
     },
+    /// The pad is not on the active surface.
+    OutsideSurface {
+        /// The pad that is not visible.
+        pad: PadId,
+    },
 }
 
 impl fmt::Display for BindingConflict {
@@ -387,6 +443,11 @@ impl fmt::Display for BindingConflict {
                 "{} is reserved for {}",
                 key_label(*key),
                 action.label()
+            ),
+            Self::OutsideSurface { pad } => write!(
+                formatter,
+                "pad {} is outside the active pad surface",
+                pad.number()
             ),
         }
     }
@@ -457,6 +518,12 @@ impl KeyRouter {
         self.profile = profile;
     }
 
+    /// Resize the surface, rewriting the pad keys and marking held keys stale.
+    pub fn set_grid(&mut self, grid: GridSize) {
+        let profile = self.profile.clone().with_grid(grid);
+        self.set_profile(profile);
+    }
+
     /// Route one key event. Returns `None` for auto-repeat, an unknown key, a
     /// stale release, or one of the deliberately unmapped keys.
     pub fn route(&mut self, input: KeyInput) -> Option<KeyAction> {
@@ -478,9 +545,7 @@ impl KeyRouter {
             if !was_held && !self.stale.remove(&input.key) {
                 return None;
             }
-            self.profile
-                .pad_for(input.key)
-                .map(KeyAction::PadRelease)
+            self.profile.pad_for(input.key).map(KeyAction::PadRelease)
         }
     }
 
@@ -573,7 +638,11 @@ mod tests {
     fn the_five_unmapped_finding_keys_stay_unmapped() {
         let profile = finding();
         for key in FINDING_UNMAPPED {
-            assert_eq!(profile.action_for(key), KeyAction::Unmapped(true), "{key:?}");
+            assert_eq!(
+                profile.action_for(key),
+                KeyAction::Unmapped(true),
+                "{key:?}"
+            );
         }
         assert_eq!(
             profile.action_for(KeyCode::KeyP),
@@ -650,7 +719,9 @@ mod tests {
         other
             .rebind_pad(PadId::new(4), KeyCode::KeyP)
             .expect("move pad 5 off Q");
-        other.rebind_pad(PadId::new(9), KeyCode::KeyQ).expect("rebind");
+        other
+            .rebind_pad(PadId::new(9), KeyCode::KeyQ)
+            .expect("rebind");
         router.set_profile(other);
         assert_eq!(
             router.route(KeyInput::release(KeyCode::KeyQ)),
@@ -666,7 +737,10 @@ mod tests {
         assert!(router.is_down(KeyCode::KeyA));
         router.clear();
         assert!(!router.is_down(KeyCode::KeyA));
-        assert_eq!(router.route(KeyInput::release(KeyCode::KeyA)), Some(KeyAction::PadRelease(PadId::new(8))));
+        assert_eq!(
+            router.route(KeyInput::release(KeyCode::KeyA)),
+            Some(KeyAction::PadRelease(PadId::new(8)))
+        );
     }
 
     #[test]
@@ -717,7 +791,10 @@ mod tests {
             .expect("rebind");
         profile.reset_bindings();
         assert_eq!(profile.pad_keys, GRID_KEYS);
-        assert_eq!(profile.action_for(KeyCode::KeyP), KeyAction::Unmapped(false));
+        assert_eq!(
+            profile.action_for(KeyCode::KeyP),
+            KeyAction::Unmapped(false)
+        );
     }
 
     #[test]
@@ -731,6 +808,77 @@ mod tests {
         assert_eq!(chart[2].rows[0].keys.len(), 5);
     }
 
+    #[test]
+    fn the_3x3_profile_maps_qwe_asdzx_to_pads_one_through_nine() {
+        let profile = finding().with_grid(GridSize::ThreeByThree);
+        assert_eq!(profile.pad_count(), 9);
+        for (index, key) in GRID_KEYS_3X3.iter().enumerate() {
+            assert_eq!(
+                profile.action_for(*key),
+                KeyAction::Pad(PadId::new(index)),
+                "{key:?} should map to pad {}",
+                index + 1
+            );
+        }
+        assert_eq!(
+            profile.action_for(KeyCode::Digit1),
+            KeyAction::Unmapped(false)
+        );
+        assert_eq!(
+            profile.action_for(KeyCode::F1),
+            KeyAction::Transport(TransportAction::Panic)
+        );
+    }
+
+    #[test]
+    fn the_4x4_profile_still_maps_all_sixteen_pads() {
+        let profile = finding();
+        assert_eq!(profile.pad_count(), 16);
+        for (index, key) in GRID_KEYS.iter().enumerate() {
+            assert_eq!(profile.action_for(*key), KeyAction::Pad(PadId::new(index)));
+        }
+    }
+
+    #[test]
+    fn switching_grid_rewrites_the_labels_and_chart() {
+        let profile = finding();
+        assert_eq!(profile.pad_labels()[0], "1");
+        let small = profile.clone().with_grid(GridSize::ThreeByThree);
+        assert_eq!(small.pad_labels()[0], "Q");
+        assert_eq!(small.pad_labels()[8], "C");
+        assert_eq!(small.chart()[0].rows.len(), 3);
+        assert_eq!(small.chart()[0].rows[0].keys.len(), 3);
+        assert_eq!(profile.chart()[0].rows.len(), 4);
+    }
+
+    #[test]
+    fn a_router_switching_to_3x3_ignores_the_number_row() {
+        let mut router = KeyRouter::new(finding());
+        assert_eq!(
+            router.route(KeyInput::press(KeyCode::Digit1)),
+            Some(KeyAction::Pad(PadId::new(0)))
+        );
+        router.set_grid(GridSize::ThreeByThree);
+        assert_eq!(router.route(KeyInput::release(KeyCode::Digit1)), None);
+        assert_eq!(
+            router.route(KeyInput::press(KeyCode::KeyQ)),
+            Some(KeyAction::Pad(PadId::new(0)))
+        );
+    }
+
+    #[test]
+    fn rebinding_a_pad_outside_the_surface_is_refused() {
+        let mut profile = finding().with_grid(GridSize::ThreeByThree);
+        let error = profile
+            .rebind_pad(PadId::new(10), KeyCode::KeyP)
+            .expect_err("outside surface");
+        assert_eq!(
+            error,
+            BindingConflict::OutsideSurface {
+                pad: PadId::new(10)
+            }
+        );
+    }
     #[test]
     fn profiles_round_trip_through_json() {
         let profile = finding();

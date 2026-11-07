@@ -12,7 +12,7 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 use winit::keyboard::KeyCode;
 
-use super::keymap::{key_label, BindingConflict, KeyboardProfile};
+use super::keymap::{BindingConflict, KeyboardProfile, key_label};
 use super::pad::PadId;
 
 /// Lowest pad volume the inspector accepts, in dB.
@@ -234,7 +234,9 @@ impl PadSettings {
 
     /// Key label for the inspector's key field.
     pub fn key_label(&self) -> String {
-        self.key.map(key_label).unwrap_or_else(|| "Unmapped".to_owned())
+        self.key
+            .map(key_label)
+            .unwrap_or_else(|| "Unmapped".to_owned())
     }
 }
 
@@ -326,18 +328,29 @@ impl fmt::Display for InspectorError {
                 "volume {value:.1} dB is outside {MIN_VOLUME_DB:.0}..={MAX_VOLUME_DB:.0} dB"
             ),
             Self::Pan { value } => write!(formatter, "pan {value:.2} is outside -1.0..=1.0"),
-            Self::Tune { value } => write!(formatter, "tune {value:.1} is outside -24..=24 semitones"),
+            Self::Tune { value } => {
+                write!(formatter, "tune {value:.1} is outside -24..=24 semitones")
+            }
             Self::ChokeGroup { value } => {
-                write!(formatter, "choke group {value} is outside 1..={MAX_CHOKE_GROUP}")
+                write!(
+                    formatter,
+                    "choke group {value} is outside 1..={MAX_CHOKE_GROUP}"
+                )
             }
             Self::MidiNote { value } => write!(formatter, "MIDI note {value} is outside 0..=127"),
             Self::NotFinite { field } => write!(formatter, "{field} must be a finite number"),
             Self::BlankSample => formatter.write_str("the sample name cannot be blank"),
             Self::TooManyLayers { count } => {
-                write!(formatter, "{count} layers exceeds the maximum of {MAX_LAYERS}")
+                write!(
+                    formatter,
+                    "{count} layers exceeds the maximum of {MAX_LAYERS}"
+                )
             }
             Self::LayerVelocity { min, max } => {
-                write!(formatter, "layer velocities {min}..={max} must stay inside 1..=127")
+                write!(
+                    formatter,
+                    "layer velocities {min}..={max} must stay inside 1..=127"
+                )
             }
             Self::LayerInverted { min, max } => {
                 write!(formatter, "layer minimum {min} is above its maximum {max}")
@@ -558,7 +571,10 @@ mod tests {
                 ..LayerSpec::full_range(None)
             },
         ];
-        assert!(matches!(settings.validate(), Err(InspectorError::LayerOverlap { .. })));
+        assert!(matches!(
+            settings.validate(),
+            Err(InspectorError::LayerOverlap { .. })
+        ));
     }
 
     #[test]
@@ -569,11 +585,17 @@ mod tests {
             velocity_max: 20,
             ..LayerSpec::full_range(None)
         }];
-        assert!(matches!(settings.validate(), Err(InspectorError::LayerInverted { .. })));
+        assert!(matches!(
+            settings.validate(),
+            Err(InspectorError::LayerInverted { .. })
+        ));
 
         settings.layers[0].velocity_min = 0;
         settings.layers[0].velocity_max = 127;
-        assert!(matches!(settings.validate(), Err(InspectorError::LayerVelocity { .. })));
+        assert!(matches!(
+            settings.validate(),
+            Err(InspectorError::LayerVelocity { .. })
+        ));
     }
 
     #[test]
@@ -594,14 +616,23 @@ mod tests {
             },
         ];
         assert_eq!(
-            settings.layer_for(1).and_then(|layer| layer.sample.as_deref()),
+            settings
+                .layer_for(1)
+                .and_then(|layer| layer.sample.as_deref()),
             Some("soft.wav")
         );
         assert_eq!(
-            settings.layer_for(127).and_then(|layer| layer.sample.as_deref()),
+            settings
+                .layer_for(127)
+                .and_then(|layer| layer.sample.as_deref()),
             Some("hard.wav")
         );
-        assert_eq!(settings.layer_for(70).and_then(|layer| layer.sample.as_deref()), Some("hard.wav"));
+        assert_eq!(
+            settings
+                .layer_for(70)
+                .and_then(|layer| layer.sample.as_deref()),
+            Some("hard.wav")
+        );
     }
 
     #[test]

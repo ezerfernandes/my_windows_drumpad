@@ -8,38 +8,44 @@
 use egui::{Align2, CornerRadius, FontId, Rect, Sense, Stroke, StrokeKind, Ui, Vec2, pos2, vec2};
 
 use crate::app::actions::Action;
-use crate::state::keymap::TransportAction;
-use crate::state::pad::{PadId, PAD_COLUMNS, PAD_ROWS};
 use crate::state::AppState;
+use crate::state::keymap::TransportAction;
+use crate::state::pad::PadId;
+use crate::state::prefs::GridSize;
 
 use super::theme::Theme;
 
 /// Geometry of the grid.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct GridLayout {
-    /// One rectangle per pad, row-major.
-    pub cells: [Rect; 16],
+    /// One rectangle per visible pad, row-major.
+    pub cells: Vec<Rect>,
     /// Size of one pad.
     pub cell: Vec2,
 }
 
 /// Lay out a 4x4 grid inside `rect` with `gap` between cells.
 pub fn layout(rect: Rect, gap: f32) -> GridLayout {
-    let gap = gap.max(0.0);
-    let cell_width = ((rect.width() - gap * (PAD_COLUMNS as f32 - 1.0)) / PAD_COLUMNS as f32)
-        .max(1.0);
-    let cell_height =
-        ((rect.height() - gap * (PAD_ROWS as f32 - 1.0)) / PAD_ROWS as f32).max(1.0);
+    layout_for(rect, gap, GridSize::FourByFour)
+}
 
-    let mut cells = [Rect::NOTHING; 16];
-    for index in 0..16 {
-        let row = index / PAD_COLUMNS;
-        let column = index % PAD_COLUMNS;
+/// Lay out the active pad surface inside `rect`.
+pub fn layout_for(rect: Rect, gap: f32, grid: GridSize) -> GridLayout {
+    let gap = gap.max(0.0);
+    let columns = grid.columns();
+    let rows = grid.rows();
+    let cell_width = ((rect.width() - gap * (columns as f32 - 1.0)) / columns as f32).max(1.0);
+    let cell_height = ((rect.height() - gap * (rows as f32 - 1.0)) / rows as f32).max(1.0);
+
+    let mut cells = Vec::with_capacity(grid.pad_count());
+    for index in 0..grid.pad_count() {
+        let row = index / columns;
+        let column = index % columns;
         let min = pos2(
             rect.left() + column as f32 * (cell_width + gap),
             rect.top() + row as f32 * (cell_height + gap),
         );
-        cells[index] = Rect::from_min_size(min, vec2(cell_width, cell_height));
+        cells.push(Rect::from_min_size(min, vec2(cell_width, cell_height)));
     }
     GridLayout {
         cells,
@@ -66,12 +72,13 @@ pub fn show(
 ) {
     let available = ui.available_rect_before_wrap();
     let gap = if large { theme.md } else { theme.sm };
-    let grid = layout(available, gap);
-    local.grid_cells = Some(grid.cells);
+    let grid_size = state.grid_size();
+    let grid = layout_for(available, gap, grid_size);
+    local.grid_cells = Some(grid.cells.clone());
 
-    for id in PadId::ALL {
+    for (index, rect) in grid.cells.iter().copied().enumerate() {
+        let id = PadId::new(index);
         let pad = state.pads.get(id);
-        let rect = grid.cells[id.index()];
         let response = ui.interact(rect, ui.id().with(("pad", id.index())), Sense::click());
 
         let painter = ui.painter();
@@ -93,10 +100,9 @@ pub fn show(
             painter.rect_stroke(
                 rect.shrink(inset),
                 CornerRadius::same(theme.radius.saturating_sub(2)),
-                Stroke::new(2.0_f32,
-                    theme
-                        .accent
-                        .gamma_multiply(pad.velocity_ring * 0.85),
+                Stroke::new(
+                    2.0_f32,
+                    theme.accent.gamma_multiply(pad.velocity_ring * 0.85),
                 ),
                 StrokeKind::Inside,
             );
@@ -181,11 +187,7 @@ pub fn show(
                 pos2(rect.right() - 7.0, rect.top() + theme.sm),
                 pos2(rect.right() - 3.0, rect.bottom() - theme.sm),
             );
-            painter.rect_filled(
-                bar,
-                CornerRadius::same(2),
-                theme.bg.gamma_multiply(0.6),
-            );
+            painter.rect_filled(bar, CornerRadius::same(2), theme.bg.gamma_multiply(0.6));
             let filled = Rect::from_min_max(
                 pos2(bar.left(), bar.bottom() - bar.height() * pad.level),
                 bar.right_bottom(),
@@ -224,12 +226,7 @@ pub fn show(
 }
 
 /// Draw the F1-F5 transport row used by performance mode.
-pub fn transport_row(
-    ui: &mut Ui,
-    theme: &Theme,
-    state: &AppState,
-    actions: &mut Vec<Action>,
-) {
+pub fn transport_row(ui: &mut Ui, theme: &Theme, state: &AppState, actions: &mut Vec<Action>) {
     let available = ui.available_width();
     let gap = theme.sm;
     let width = (available - gap * 4.0) / 5.0;
@@ -251,7 +248,9 @@ pub fn transport_row(
                 if active { "ON" } else { "" }
             );
             let button = egui::Button::new(
-                egui::RichText::new(text.trim_end()).size(theme.body).color(theme.text),
+                egui::RichText::new(text.trim_end())
+                    .size(theme.body)
+                    .color(theme.text),
             )
             .min_size(vec2(width, theme.xl * 1.6))
             .fill(if active || flash > 0.0 {
@@ -300,7 +299,11 @@ mod tests {
         // Central panel after the 52 pt top bar and 30 pt status bar.
         let rect = screen(1280.0, 720.0 - 52.0 - 30.0);
         let grid = layout(rect, 8.0);
-        assert!(is_usable(&grid), "cell {:?} is too small at 1280x720", grid.cell);
+        assert!(
+            is_usable(&grid),
+            "cell {:?} is too small at 1280x720",
+            grid.cell
+        );
         for cell in grid.cells {
             assert!(rect.contains_rect(cell));
         }
@@ -317,6 +320,21 @@ mod tests {
         );
     }
 
+    #[test]
+    fn the_3x3_surface_has_nine_non_overlapping_cells() {
+        let rect = screen(900.0, 700.0);
+        let grid = layout_for(rect, 8.0, GridSize::ThreeByThree);
+        assert_eq!(grid.cells.len(), 9);
+        assert_eq!(grid.cells[0].left(), rect.left());
+        assert_eq!(grid.cells[8].right(), rect.right());
+        assert_eq!(grid.cells[8].bottom(), rect.bottom());
+        for index in 0..grid.cells.len() {
+            for other in (index + 1)..grid.cells.len() {
+                assert!(!grid.cells[index].intersects(grid.cells[other]));
+            }
+        }
+        assert!(is_usable(&grid));
+    }
     #[test]
     fn a_tiny_window_still_produces_positive_cells() {
         let grid = layout(screen(80.0, 60.0), 8.0);

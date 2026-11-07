@@ -107,6 +107,8 @@ pub struct KeyboardPrefs {
     pub profile: ProfileId,
     /// Show the key label on each pad.
     pub show_key_labels: bool,
+    /// Pad surface size.
+    pub grid_size: GridSize,
 }
 
 impl Default for KeyboardPrefs {
@@ -114,6 +116,66 @@ impl Default for KeyboardPrefs {
         Self {
             profile: ProfileId(2),
             show_key_labels: true,
+            grid_size: GridSize::ThreeByThree,
+        }
+    }
+}
+
+/// How many pads the performance surface shows and routes.
+///
+/// The kit always owns 16 pads; the 3x3 surface shows and routes the first nine
+/// and leaves the rest available to MIDI and kit data. 3x3 is the default so a
+/// fresh install matches the one-hand reference workflow.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum GridSize {
+    /// 16 pads in a 4x4 grid.
+    FourByFour,
+    /// 9 pads in a 3x3 grid. The default.
+    #[default]
+    ThreeByThree,
+}
+
+impl GridSize {
+    /// Both choices in menu order.
+    pub const ALL: [Self; 2] = [Self::FourByFour, Self::ThreeByThree];
+
+    /// Grid columns.
+    pub const fn columns(self) -> usize {
+        match self {
+            Self::FourByFour => 4,
+            Self::ThreeByThree => 3,
+        }
+    }
+
+    /// Grid rows.
+    pub const fn rows(self) -> usize {
+        match self {
+            Self::FourByFour => 4,
+            Self::ThreeByThree => 3,
+        }
+    }
+
+    /// Number of pads on the surface.
+    pub const fn pad_count(self) -> usize {
+        self.columns() * self.rows()
+    }
+
+    /// Menu label.
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::FourByFour => "4x4 (16 pads)",
+            Self::ThreeByThree => "3x3 (9 pads)",
+        }
+    }
+
+    /// Key labels for the surface, row-major.
+    pub const fn key_labels(self) -> &'static [&'static str] {
+        match self {
+            Self::FourByFour => &[
+                "1", "2", "3", "4", "Q", "W", "E", "R", "A", "S", "D", "F", "Z", "X", "C", "V",
+            ],
+            Self::ThreeByThree => &["Q", "W", "E", "A", "S", "D", "Z", "X", "C"],
         }
     }
 }
@@ -224,7 +286,10 @@ impl fmt::Display for SettingsError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::SampleRate { value, allowed } => {
-                write!(formatter, "sample rate {value} Hz is not supported; use one of {allowed:?}")
+                write!(
+                    formatter,
+                    "sample rate {value} Hz is not supported; use one of {allowed:?}"
+                )
             }
             Self::BufferSize { value, min, max } => {
                 write!(formatter, "buffer {value} frames is outside {min}..={max}")
@@ -265,9 +330,15 @@ impl RestartReason {
     /// Explanation shown under the Apply button.
     pub const fn explanation(self) -> &'static str {
         match self {
-            Self::AudioDevice => "The output device is opened at startup, so the new device is used after a restart.",
-            Self::SampleRate => "The audio stream is built for one sample rate; restart to rebuild it.",
-            Self::BufferSize => "The audio stream is built for one buffer size; restart to rebuild it.",
+            Self::AudioDevice => {
+                "The output device is opened at startup, so the new device is used after a restart."
+            }
+            Self::SampleRate => {
+                "The audio stream is built for one sample rate; restart to rebuild it."
+            }
+            Self::BufferSize => {
+                "The audio stream is built for one buffer size; restart to rebuild it."
+            }
             Self::AudioMode => "Exclusive and shared modes need a new stream; restart to switch.",
         }
     }
@@ -353,22 +424,23 @@ impl UiPreferences {
     pub fn load(path: &Path) -> Result<Self, PreferencesError> {
         match std::fs::read_to_string(path) {
             Ok(text) => {
-                let preferences: Self = serde_json::from_str(&text).map_err(|error| {
-                    PreferencesError::Invalid {
+                let preferences: Self =
+                    serde_json::from_str(&text).map_err(|error| PreferencesError::Invalid {
                         path: path.to_path_buf(),
                         message: error.to_string(),
-                    }
-                })?;
+                    })?;
                 if preferences.schema_version != PREFERENCES_SCHEMA_VERSION {
                     return Err(PreferencesError::UnsupportedVersion {
                         found: preferences.schema_version,
                         supported: PREFERENCES_SCHEMA_VERSION,
                     });
                 }
-                preferences.validate().map_err(|error| PreferencesError::Invalid {
-                    path: path.to_path_buf(),
-                    message: error.to_string(),
-                })?;
+                preferences
+                    .validate()
+                    .map_err(|error| PreferencesError::Invalid {
+                        path: path.to_path_buf(),
+                        message: error.to_string(),
+                    })?;
                 Ok(preferences)
             }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Self::default()),
@@ -385,10 +457,11 @@ impl UiPreferences {
             path: path.to_path_buf(),
             message: error.to_string(),
         })?;
-        let json = serde_json::to_string_pretty(self).map_err(|error| PreferencesError::Invalid {
-            path: path.to_path_buf(),
-            message: error.to_string(),
-        })?;
+        let json =
+            serde_json::to_string_pretty(self).map_err(|error| PreferencesError::Invalid {
+                path: path.to_path_buf(),
+                message: error.to_string(),
+            })?;
         // Reuse the foundation's atomic writer (temp file, flush, rename).
         crate::settings::write_atomic(path, format!("{json}\n").as_bytes()).map_err(|error| {
             PreferencesError::Io {
@@ -432,7 +505,11 @@ impl fmt::Display for PreferencesError {
                 write!(formatter, "could not access {}: {message}", path.display())
             }
             Self::Invalid { path, message } => {
-                write!(formatter, "{} is not a valid preferences file: {message}", path.display())
+                write!(
+                    formatter,
+                    "{} is not a valid preferences file: {message}",
+                    path.display()
+                )
             }
             Self::UnsupportedVersion { found, supported } => write!(
                 formatter,
@@ -537,7 +614,10 @@ mod tests {
         let mut preferences = UiPreferences::default();
         preferences.audio.sample_rate = 22_050;
         let error = preferences.validate().expect_err("rate");
-        assert!(matches!(error, SettingsError::SampleRate { value: 22_050, .. }));
+        assert!(matches!(
+            error,
+            SettingsError::SampleRate { value: 22_050, .. }
+        ));
         assert!(error.to_string().contains("44100"));
     }
 
@@ -583,15 +663,49 @@ mod tests {
         }
         for scale in [0.5, 2.5, f32::NAN] {
             preferences.appearance.scale = scale;
-            assert!(matches!(preferences.validate(), Err(SettingsError::UiScale { .. })));
+            assert!(matches!(
+                preferences.validate(),
+                Err(SettingsError::UiScale { .. })
+            ));
         }
     }
 
     #[test]
+    fn the_pad_grid_choice_defaults_to_3x3_and_round_trips() {
+        assert_eq!(
+            UiPreferences::default().keyboard.grid_size,
+            GridSize::ThreeByThree
+        );
+        // Preferences written before the field existed must load as 3x3.
+        let legacy: UiPreferences = serde_json::from_str(
+            r#"{"schema_version":1,"keyboard":{"profile":2,"show_key_labels":true}}"#,
+        )
+        .expect("legacy preferences");
+        assert_eq!(legacy.keyboard.grid_size, GridSize::ThreeByThree);
+        let legacy_whole_section: UiPreferences =
+            serde_json::from_str(r#"{"schema_version":1}"#).expect("legacy preferences");
+        assert_eq!(
+            legacy_whole_section.keyboard.grid_size,
+            GridSize::ThreeByThree
+        );
+
+        let mut preferences = UiPreferences::default();
+        preferences.keyboard.grid_size = GridSize::FourByFour;
+        let json = serde_json::to_string(&preferences).expect("serialize");
+        let decoded: UiPreferences = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(decoded.keyboard.grid_size, GridSize::FourByFour);
+        assert_eq!(decoded, preferences);
+        assert_eq!(GridSize::ThreeByThree.pad_count(), 9);
+        assert_eq!(GridSize::FourByFour.pad_count(), 16);
+    }
+    #[test]
     fn exclusive_mode_is_blocked_until_the_backend_supports_it() {
         let mut preferences = UiPreferences::default();
         preferences.audio.exclusive = true;
-        assert_eq!(preferences.validate(), Err(SettingsError::ExclusiveNotImplemented));
+        assert_eq!(
+            preferences.validate(),
+            Err(SettingsError::ExclusiveNotImplemented)
+        );
         assert!(
             SettingsError::ExclusiveNotImplemented
                 .to_string()
@@ -648,7 +762,10 @@ mod tests {
 
         preferences.appearance.scale = 1.25;
         preferences.save(&path).expect("replace");
-        assert_eq!(UiPreferences::load(&path).expect("load replaced"), preferences);
+        assert_eq!(
+            UiPreferences::load(&path).expect("load replaced"),
+            preferences
+        );
 
         let leftovers: Vec<_> = std::fs::read_dir(temp.path())
             .expect("read dir")
@@ -662,7 +779,10 @@ mod tests {
     fn a_missing_file_loads_defaults_without_writing() {
         let temp = tempdir().expect("temp");
         let path = temp.path().join(PREFERENCES_FILE_NAME);
-        assert_eq!(UiPreferences::load(&path).expect("defaults"), UiPreferences::default());
+        assert_eq!(
+            UiPreferences::load(&path).expect("defaults"),
+            UiPreferences::default()
+        );
         assert!(!path.exists());
     }
 
@@ -681,7 +801,10 @@ mod tests {
         let temp = tempdir().expect("temp");
         let path = temp.path().join(PREFERENCES_FILE_NAME);
         std::fs::write(&path, b"{ not json").expect("write");
-        assert!(matches!(UiPreferences::load(&path), Err(PreferencesError::Invalid { .. })));
+        assert!(matches!(
+            UiPreferences::load(&path),
+            Err(PreferencesError::Invalid { .. })
+        ));
         assert_eq!(std::fs::read(&path).expect("still there"), b"{ not json");
 
         std::fs::write(&path, br#"{"schema_version":99}"#).expect("write future");
@@ -696,7 +819,10 @@ mod tests {
         let temp = tempdir().expect("temp");
         let path = temp.path().join(PREFERENCES_FILE_NAME);
         std::fs::write(&path, br#"{"schema_version":1,"surprise":true}"#).expect("write");
-        assert!(matches!(UiPreferences::load(&path), Err(PreferencesError::Invalid { .. })));
+        assert!(matches!(
+            UiPreferences::load(&path),
+            Err(PreferencesError::Invalid { .. })
+        ));
     }
 
     #[test]

@@ -7,9 +7,7 @@
 //! the design promises are asserted in tests, so a palette tweak that makes the
 //! stage unreadable fails CI.
 
-use egui::{
-    Color32, CornerRadius, FontFamily, FontId, Stroke, TextStyle, Visuals,
-};
+use egui::{Color32, CornerRadius, FontFamily, FontId, Stroke, TextStyle, Visuals};
 
 use crate::state::pad::{PadId, PadState};
 use crate::state::prefs::ThemeChoice;
@@ -159,10 +157,10 @@ impl Theme {
         FontId::new(self.mono, FontFamily::Monospace)
     }
 
-    /// Base colour for a pad, shaded by row so the 4x4 grid is easy to scan.
+    /// Base colour for a pad, shaded by surface row so the grid is easy to scan.
     pub fn pad_base(&self, pad: &PadState) -> Color32 {
         let base = self.pad_bases[pad.color as usize % self.pad_bases.len()];
-        let shade = match pad.id.row() {
+        let shade = match pad.surface_row {
             0 => 1.0,
             1 => 0.88,
             2 => 0.78,
@@ -236,11 +234,26 @@ impl Theme {
         style.visuals = visuals;
 
         style.text_styles = [
-            (TextStyle::Heading, FontId::new(self.h1, FontFamily::Proportional)),
-            (TextStyle::Body, FontId::new(self.body, FontFamily::Proportional)),
-            (TextStyle::Button, FontId::new(self.body, FontFamily::Proportional)),
-            (TextStyle::Small, FontId::new(self.small, FontFamily::Proportional)),
-            (TextStyle::Monospace, FontId::new(self.mono, FontFamily::Monospace)),
+            (
+                TextStyle::Heading,
+                FontId::new(self.h1, FontFamily::Proportional),
+            ),
+            (
+                TextStyle::Body,
+                FontId::new(self.body, FontFamily::Proportional),
+            ),
+            (
+                TextStyle::Button,
+                FontId::new(self.body, FontFamily::Proportional),
+            ),
+            (
+                TextStyle::Small,
+                FontId::new(self.small, FontFamily::Proportional),
+            ),
+            (
+                TextStyle::Monospace,
+                FontId::new(self.mono, FontFamily::Monospace),
+            ),
         ]
         .into();
 
@@ -255,11 +268,7 @@ impl Theme {
 
 fn scale_rgb(color: Color32, factor: f32) -> Color32 {
     let channel = |value: u8| ((value as f32 * factor).round() as i32).clamp(0, 255) as u8;
-    Color32::from_rgb(
-        channel(color.r()),
-        channel(color.g()),
-        channel(color.b()),
-    )
+    Color32::from_rgb(channel(color.r()), channel(color.g()), channel(color.b()))
 }
 
 fn lerp_color(a: Color32, b: Color32, t: f32) -> Color32 {
@@ -297,7 +306,7 @@ pub fn pad_color_index(id: PadId) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::pad::{Pads, PadId};
+    use crate::state::pad::{PadId, Pads};
 
     #[test]
     fn text_is_readable_on_every_background_in_both_themes() {
@@ -388,7 +397,10 @@ mod tests {
     fn selected_pads_get_the_focus_ring() {
         let theme = Theme::stage();
         let mut pads = Pads::new();
-        assert_eq!(theme.pad_border(pads.get(PadId::new(0))), (theme.focus, 3.0));
+        assert_eq!(
+            theme.pad_border(pads.get(PadId::new(0))),
+            (theme.focus, 3.0)
+        );
         pads.select(PadId::new(1));
         assert_eq!(theme.pad_border(pads.get(PadId::new(0))).1, 1.0);
         assert_eq!(theme.pad_border(pads.get(PadId::new(1))).0, theme.focus);

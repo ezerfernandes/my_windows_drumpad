@@ -5,9 +5,9 @@ use egui::{RichText, Ui};
 use crate::app::actions::Action;
 use crate::state::AppState;
 
+use super::UiLocal;
 use super::pad_grid;
 use super::theme::Theme;
-use super::UiLocal;
 
 /// Draw the performance surface.
 pub fn show(
@@ -30,7 +30,11 @@ pub fn show(
             ui,
             theme,
             &format!("Pad {}", status.pad),
-            if status.dirty { theme.warning } else { theme.text_muted },
+            if status.dirty {
+                theme.warning
+            } else {
+                theme.text_muted
+            },
         );
         chip(
             ui,
@@ -68,15 +72,16 @@ pub fn show(
     let full = ui.available_rect_before_wrap();
     let grid_rect = egui::Rect::from_min_max(
         full.min,
-        egui::pos2(full.max.x, (full.max.y - transport_height - theme.sm).max(full.min.y + 80.0)),
+        egui::pos2(
+            full.max.x,
+            (full.max.y - transport_height - theme.sm).max(full.min.y + 80.0),
+        ),
     );
     ui.scope_builder(egui::UiBuilder::new().max_rect(grid_rect), |ui| {
         pad_grid::show(ui, theme, state, local, actions, true);
     });
-    let row_rect = egui::Rect::from_min_max(
-        egui::pos2(full.min.x, grid_rect.max.y + theme.sm),
-        full.max,
-    );
+    let row_rect =
+        egui::Rect::from_min_max(egui::pos2(full.min.x, grid_rect.max.y + theme.sm), full.max);
     ui.scope_builder(egui::UiBuilder::new().max_rect(row_rect), |ui| {
         pad_grid::transport_row(ui, theme, state, actions);
     });

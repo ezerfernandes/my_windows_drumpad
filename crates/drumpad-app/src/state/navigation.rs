@@ -136,10 +136,7 @@ impl Navigation {
         if !self.is_performance() {
             return self.current.view;
         }
-        let view = self
-            .current
-            .return_to
-            .unwrap_or(View::Edit);
+        let view = self.current.return_to.unwrap_or(View::Edit);
         self.current = Frame {
             view,
             return_to: None,

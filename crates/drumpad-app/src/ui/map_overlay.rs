@@ -7,8 +7,8 @@
 use egui::{Align2, Key, RichText, Ui, vec2};
 
 use crate::app::actions::Action;
-use crate::state::keymap::{ChartSection, KeyAction, TransportAction};
 use crate::state::AppState;
+use crate::state::keymap::{ChartSection, KeyAction, TransportAction};
 
 use super::theme::Theme;
 
@@ -82,10 +82,7 @@ fn section_ui(
                     button = button.selected(state.pads.selected() == pad);
                     let response = ui.add(button);
                     if response.clicked() {
-                        actions.push(Action::TriggerPad {
-                            pad,
-                            velocity: 100,
-                        });
+                        actions.push(Action::TriggerPad { pad, velocity: 100 });
                     }
                     response.on_hover_text(format!("Pad {} - {pad_name}", pad.number()));
                     ui.vertical(|ui| {

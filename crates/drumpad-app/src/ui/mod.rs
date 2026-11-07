@@ -23,11 +23,11 @@ use winit::keyboard::KeyCode;
 
 use crate::app::actions::Action;
 use crate::app::hotkeys::SHORTCUT_HELP;
+use crate::state::AppState;
 use crate::state::kit::KitId;
 use crate::state::navigation::View;
 use crate::state::pad::PadId;
 use crate::state::prefs::{ThemeChoice, UiPreferences};
-use crate::state::AppState;
 
 use theme::Theme;
 
@@ -56,12 +56,14 @@ pub struct UiLocal {
     pub edit_crossfade: f32,
     /// Wizard sample-folder text.
     pub wizard_folder: String,
+    /// Kit browser sample-folder text.
+    pub sample_folder: String,
     /// Whether the shortcut cheat sheet is open.
     pub show_shortcuts: bool,
     /// Last measured performance grid height, for the shell's diagnostics.
     pub last_performance_height: f32,
     /// Pad rectangles from the last frame, for drop targeting.
-    pub grid_cells: Option<[egui::Rect; 16]>,
+    pub grid_cells: Option<Vec<egui::Rect>>,
     /// Pointer position from the last frame.
     pub pointer: Option<egui::Pos2>,
 }
@@ -92,6 +94,7 @@ impl Default for UiLocal {
             edit_pitch: 0.0,
             edit_crossfade: 0.0,
             wizard_folder: String::new(),
+            sample_folder: String::new(),
             show_shortcuts: false,
             last_performance_height: 0.0,
             grid_cells: None,
@@ -114,13 +117,17 @@ impl UiRoot {
     /// Build the root from persisted preferences.
     pub fn new(preferences: &UiPreferences) -> Self {
         let theme = Theme::for_choice(preferences.appearance.theme);
+        let mut local = UiLocal::default();
+        if let Some(folder) = &preferences.sample_folder {
+            local.sample_folder = folder.display().to_string();
+        }
         Self {
             theme,
             theme_choice: preferences.appearance.theme,
             scale: preferences.appearance.scale,
             reduce_motion: preferences.appearance.reduce_motion,
             fit_zoom: 1.0,
-            local: UiLocal::default(),
+            local,
         }
     }
 
@@ -171,6 +178,11 @@ impl UiRoot {
         let theme = self.theme.clone();
         let mut actions = Vec::new();
         self.local.pointer = ctx.input(|input| input.pointer.hover_pos());
+        if self.local.sample_folder.is_empty()
+            && let Some(folder) = &state.settings.saved().sample_folder
+        {
+            self.local.sample_folder = folder.display().to_string();
+        }
 
         // Performance mode hides all editing chrome: no top bar, no status bar.
         // The in-view header keeps the kit name, transport state, and exit.
@@ -280,18 +292,24 @@ fn top_bar(ctx: &egui::Context, theme: &Theme, state: &AppState, actions: &mut V
                     );
                     let status = state.status();
                     if status.dirty {
-                        ui.label(RichText::new("UNSAVED").color(theme.warning).size(theme.small));
+                        ui.label(
+                            RichText::new("UNSAVED")
+                                .color(theme.warning)
+                                .size(theme.small),
+                        );
                     }
                     ui.label(
                         RichText::new(format!("{} · {}", status.kit, status.load))
-                            .color(if matches!(
-                                state.kits.load_status(),
-                                crate::state::kit::LoadStatus::Failed { .. }
-                            ) {
-                                theme.error
-                            } else {
-                                theme.text_muted
-                            })
+                            .color(
+                                if matches!(
+                                    state.kits.load_status(),
+                                    crate::state::kit::LoadStatus::Failed { .. }
+                                ) {
+                                    theme.error
+                                } else {
+                                    theme.text_muted
+                                },
+                            )
                             .size(theme.small),
                     );
                 });
@@ -342,8 +360,7 @@ fn split_edit_columns(full: egui::Rect, gap: f32) -> (egui::Rect, egui::Rect) {
     let grid_width = (full.width() - inspector_width - gap).max(320.0);
     let split = full.min.x + grid_width;
     let grid_rect = egui::Rect::from_min_max(full.min, egui::pos2(split, full.max.y));
-    let inspector_rect =
-        egui::Rect::from_min_max(egui::pos2(split + gap, full.min.y), full.max);
+    let inspector_rect = egui::Rect::from_min_max(egui::pos2(split + gap, full.min.y), full.max);
     (grid_rect, inspector_rect)
 }
 
@@ -374,15 +391,15 @@ fn status_bar(
                         .size(theme.small),
                 );
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if ui
-                        .button("?")
-                        .on_hover_text("Keyboard shortcuts")
-                        .clicked()
-                    {
+                    if ui.button("?").on_hover_text("Keyboard shortcuts").clicked() {
                         local.show_shortcuts = !local.show_shortcuts;
                     }
                     if state.performance.metronome() {
-                        ui.label(RichText::new("METRONOME").color(theme.success).size(theme.small));
+                        ui.label(
+                            RichText::new("METRONOME")
+                                .color(theme.success)
+                                .size(theme.small),
+                        );
                     }
                     if state.dragdrop.can_undo() && ui.small_button("Undo drop").clicked() {
                         actions.push(Action::UndoDrop);

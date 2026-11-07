@@ -7,14 +7,12 @@
 use egui::{RichText, Ui};
 
 use crate::app::actions::Action;
-use crate::state::keymap::KeyboardProfile;
-use crate::state::prefs::{
-    BUFFER_SIZES, SAMPLE_RATES, ThemeChoice, UiPreferences,
-};
 use crate::state::AppState;
+use crate::state::keymap::KeyboardProfile;
+use crate::state::prefs::{BUFFER_SIZES, SAMPLE_RATES, ThemeChoice, UiPreferences};
 
-use super::theme::Theme;
 use super::UiLocal;
+use super::theme::Theme;
 
 /// Draw the settings screen.
 pub fn show(
@@ -35,6 +33,8 @@ pub fn show(
             midi(ui, theme, state);
             ui.separator();
             keyboard(ui, theme, state, actions);
+            ui.separator();
+            library(ui, theme, state);
             ui.separator();
             appearance(ui, theme, state);
             ui.separator();
@@ -115,11 +115,7 @@ fn audio(ui: &mut Ui, theme: &Theme, state: &mut AppState) {
                 .selected_text(format!("{buffer} frames"))
                 .show_ui(ui, |ui| {
                     for candidate in BUFFER_SIZES {
-                        ui.selectable_value(
-                            buffer,
-                            candidate,
-                            format!("{candidate} frames"),
-                        );
+                        ui.selectable_value(buffer, candidate, format!("{candidate} frames"));
                     }
                 });
             ui.end_row();
@@ -182,12 +178,7 @@ fn midi(ui: &mut Ui, theme: &Theme, state: &mut AppState) {
         });
 }
 
-fn keyboard(
-    ui: &mut Ui,
-    theme: &Theme,
-    state: &mut AppState,
-    actions: &mut Vec<Action>,
-) {
+fn keyboard(ui: &mut Ui, theme: &Theme, state: &mut AppState, actions: &mut Vec<Action>) {
     ui.label(section_title(theme, "Keyboard"));
     let current = state.settings.draft().keyboard.profile;
     let name = KeyboardProfile::builtin(current)
@@ -216,8 +207,62 @@ fn keyboard(
             .color(theme.text_muted)
             .size(theme.small),
     );
+
+    let current_grid = state.grid_size();
+    ui.horizontal(|ui| {
+        ui.label("Pad grid");
+        egui::ComboBox::from_id_salt("grid-size")
+            .selected_text(current_grid.label())
+            .show_ui(ui, |ui| {
+                for candidate in crate::state::prefs::GridSize::ALL {
+                    let selected = current_grid == candidate;
+                    if ui.selectable_label(selected, candidate.label()).clicked() && !selected {
+                        actions.push(Action::SetGridSize(candidate));
+                    }
+                }
+            });
+    });
+    ui.label(
+        RichText::new(
+            "3x3 uses Q W E / A S D / Z X C for the first nine pads; the kit keeps all 16.",
+        )
+        .color(theme.text_disabled)
+        .size(theme.small),
+    );
+
     let show_labels = &mut state.settings.draft_mut().keyboard.show_key_labels;
     ui.checkbox(show_labels, "Show key labels on pads");
+}
+
+fn library(ui: &mut Ui, theme: &Theme, state: &mut AppState) {
+    ui.label(section_title(theme, "Sample library"));
+    ui.horizontal(|ui| {
+        ui.label("Sample folder");
+        let folder = &mut state.settings.draft_mut().sample_folder;
+        let mut text = folder
+            .as_ref()
+            .map(|path| path.display().to_string())
+            .unwrap_or_default();
+        if ui
+            .add(
+                egui::TextEdit::singleline(&mut text)
+                    .hint_text("D:\\Samples")
+                    .desired_width(360.0),
+            )
+            .changed()
+        {
+            *folder = if text.trim().is_empty() {
+                None
+            } else {
+                Some(std::path::PathBuf::from(text))
+            };
+        }
+    });
+    ui.label(
+        RichText::new("Used by the Kits view when creating a kit from a folder. Apply to persist.")
+            .color(theme.text_disabled)
+            .size(theme.small),
+    );
 }
 
 fn appearance(ui: &mut Ui, theme: &Theme, state: &mut AppState) {

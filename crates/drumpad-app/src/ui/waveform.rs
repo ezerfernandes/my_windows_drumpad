@@ -12,12 +12,12 @@ use egui::{
 };
 
 use crate::app::actions::Action;
-use crate::state::editor::{EditParams, SourceRef, MAX_GAIN_DB, MIN_GAIN_DB, pitch_factor};
-use crate::state::waveform::{PeakSet, WaveformView};
 use crate::state::AppState;
+use crate::state::editor::{EditParams, MAX_GAIN_DB, MIN_GAIN_DB, SourceRef, pitch_factor};
+use crate::state::waveform::{PeakSet, WaveformView};
 
-use super::theme::Theme;
 use super::UiLocal;
+use super::theme::Theme;
 
 /// Draw the sample editor. Returns silently when no sample is open.
 pub fn show(
@@ -225,15 +225,7 @@ pub fn show(
 
     ui.add_space(theme.xs);
     edit_controls(
-        ui,
-        theme,
-        local,
-        actions,
-        &base,
-        &source,
-        selection,
-        to_source,
-        factor,
+        ui, theme, local, actions, &base, &source, selection, to_source, factor,
     );
 }
 

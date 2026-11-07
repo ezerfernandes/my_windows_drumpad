@@ -131,7 +131,10 @@ mod tests {
     #[test]
     fn panic_counts_requests_and_does_not_touch_the_metronome() {
         let mut performance = Performance::new();
-        assert_eq!(performance.trigger(TransportAction::Panic), TransportEffect::Panic);
+        assert_eq!(
+            performance.trigger(TransportAction::Panic),
+            TransportEffect::Panic
+        );
         assert_eq!(performance.panic_requests(), 1);
         assert!(!performance.metronome());
     }

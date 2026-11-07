@@ -169,7 +169,9 @@ impl EditParams {
         }
 
         if !(MIN_GAIN_DB..=MAX_GAIN_DB).contains(&self.gain_db) {
-            return Err(EditError::GainOutOfRange { value: self.gain_db });
+            return Err(EditError::GainOutOfRange {
+                value: self.gain_db,
+            });
         }
         if !(MIN_PITCH_SEMITONES..=MAX_PITCH_SEMITONES).contains(&self.pitch_semitones) {
             return Err(EditError::PitchOutOfRange {
@@ -335,7 +337,10 @@ impl fmt::Display for EditError {
                 "fades total {fade:.3}s but only {available:.3}s is trimmed"
             ),
             Self::LoopRange { start, end } => {
-                write!(formatter, "loop start {start:.3}s must be before end {end:.3}s")
+                write!(
+                    formatter,
+                    "loop start {start:.3}s must be before end {end:.3}s"
+                )
             }
             Self::LoopOutsideTrim {
                 start,
@@ -404,7 +409,13 @@ pub fn render(
     }
 
     apply_fade(&mut rendered, channels, rate, params.fade_in, FadeKind::In);
-    apply_fade(&mut rendered, channels, rate, params.fade_out, FadeKind::Out);
+    apply_fade(
+        &mut rendered,
+        channels,
+        rate,
+        params.fade_out,
+        FadeKind::Out,
+    );
 
     let mut gain = 10.0_f32.powf(params.gain_db / 20.0);
     if params.normalize {
@@ -522,7 +533,11 @@ impl EditSession {
     ///
     /// Validation happens before anything is mutated, so a rejected edit leaves
     /// both the current parameters and the history untouched.
-    pub fn commit(&mut self, label: impl Into<String>, params: EditParams) -> Result<(), EditError> {
+    pub fn commit(
+        &mut self,
+        label: impl Into<String>,
+        params: EditParams,
+    ) -> Result<(), EditError> {
         params.validate(&self.source)?;
         if params == self.current {
             return Ok(());
@@ -587,7 +602,12 @@ impl EditSession {
     }
 
     /// Render the current parameters over `source`.
-    pub fn render(&self, source: &[f32], channels: u16, sample_rate: u32) -> Result<Vec<f32>, EditError> {
+    pub fn render(
+        &self,
+        source: &[f32],
+        channels: u16,
+        sample_rate: u32,
+    ) -> Result<Vec<f32>, EditError> {
         render(source, channels, sample_rate, &self.current)
     }
 
@@ -669,7 +689,10 @@ mod tests {
         let rendered = render(&buffer, 1, 1_000, &params).expect("render");
         assert_eq!(rendered[0], 0.0);
         let tail = &rendered[100..];
-        assert!(tail.iter().all(|sample| (*sample - 1.0).abs() < f32::EPSILON));
+        assert!(
+            tail.iter()
+                .all(|sample| (*sample - 1.0).abs() < f32::EPSILON)
+        );
         for pair in rendered[..100].windows(2) {
             assert!(pair[1] >= pair[0]);
         }
@@ -693,7 +716,9 @@ mod tests {
         params.normalize = true;
         params.trim_end = Some(100.0);
         let rendered = render(&buffer, 1, 100, &params).expect("render");
-        let peak = rendered.iter().fold(0.0_f32, |peak, sample| peak.max(sample.abs()));
+        let peak = rendered
+            .iter()
+            .fold(0.0_f32, |peak, sample| peak.max(sample.abs()));
         assert!((peak - NORMALIZE_TARGET).abs() < 1e-5);
     }
 
@@ -728,7 +753,10 @@ mod tests {
         let mut params = EditParams::default();
         params.trim_start = 2.0;
         params.trim_end = Some(1.0);
-        assert!(matches!(params.validate(&source), Err(EditError::TrimRange { .. })));
+        assert!(matches!(
+            params.validate(&source),
+            Err(EditError::TrimRange { .. })
+        ));
     }
 
     #[test]
@@ -738,7 +766,10 @@ mod tests {
         params.trim_end = Some(0.1);
         params.fade_in = 0.06;
         params.fade_out = 0.06;
-        assert!(matches!(params.validate(&source), Err(EditError::FadeTooLong { .. })));
+        assert!(matches!(
+            params.validate(&source),
+            Err(EditError::FadeTooLong { .. })
+        ));
     }
 
     #[test]
@@ -748,7 +779,10 @@ mod tests {
         params.loop_enabled = true;
         params.loop_start = 0.6;
         params.loop_end = 0.4;
-        assert!(matches!(params.validate(&source), Err(EditError::LoopRange { .. })));
+        assert!(matches!(
+            params.validate(&source),
+            Err(EditError::LoopRange { .. })
+        ));
 
         let mut params = EditParams::default();
         params.trim_start = 0.2;
@@ -756,7 +790,10 @@ mod tests {
         params.loop_enabled = true;
         params.loop_start = 0.1;
         params.loop_end = 0.4;
-        assert!(matches!(params.validate(&source), Err(EditError::LoopOutsideTrim { .. })));
+        assert!(matches!(
+            params.validate(&source),
+            Err(EditError::LoopOutsideTrim { .. })
+        ));
     }
 
     #[test]
@@ -781,7 +818,10 @@ mod tests {
         let source = source(1_000, 1_000);
         let mut params = EditParams::default();
         params.gain_db = f32::NAN;
-        assert!(matches!(params.validate(&source), Err(EditError::NotFinite { .. })));
+        assert!(matches!(
+            params.validate(&source),
+            Err(EditError::NotFinite { .. })
+        ));
     }
 
     #[test]
@@ -789,10 +829,16 @@ mod tests {
         let source = source(1_000, 1_000);
         let mut params = EditParams::default();
         params.gain_db = 40.0;
-        assert!(matches!(params.validate(&source), Err(EditError::GainOutOfRange { .. })));
+        assert!(matches!(
+            params.validate(&source),
+            Err(EditError::GainOutOfRange { .. })
+        ));
         params.gain_db = 0.0;
         params.pitch_semitones = 30.0;
-        assert!(matches!(params.validate(&source), Err(EditError::PitchOutOfRange { .. })));
+        assert!(matches!(
+            params.validate(&source),
+            Err(EditError::PitchOutOfRange { .. })
+        ));
     }
 
     #[test]
@@ -881,7 +927,9 @@ mod tests {
         for step in 1..=(MAX_HISTORY + 10) {
             let mut params = EditParams::default();
             params.gain_db = -(step as f32) * 0.01;
-            session.commit(format!("Gain {step}"), params).expect("commit");
+            session
+                .commit(format!("Gain {step}"), params)
+                .expect("commit");
         }
         let mut undo_count = 0;
         while session.undo().is_some() {

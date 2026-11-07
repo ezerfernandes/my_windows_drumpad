@@ -39,10 +39,10 @@ use inspector::{InspectorError, PadInspector, PadSettings};
 use keymap::{KeyAction, KeyInput, KeyRouter, KeyboardProfile, ProfileId, TransportAction};
 use kit::{KitBrowser, KitError, LoadStatus};
 use navigation::Navigation;
-use pad::{PadId, Pads, PAD_COUNT};
 use notifications::{DialogAction, DialogIntent, Notifications, Severity};
+use pad::{PAD_COUNT, PadId, Pads};
 use performance::{Performance, TransportEffect};
-use prefs::{SettingsSession, UiPreferences};
+use prefs::{GridSize, SettingsSession, UiPreferences};
 use waveform::{PeakSet, WaveformView};
 use wizard::Wizard;
 
@@ -69,6 +69,15 @@ pub enum Effect {
     Metronome(bool),
     /// A kit operation for the model/kit service.
     Kit(kit::KitRequest),
+    /// Duplicate a kit through the model/kit service.
+    DuplicateKit(kit::KitId),
+    /// Import a folder into a new kit.
+    ImportKit {
+        /// New kit name.
+        name: String,
+        /// Folder to scan.
+        folder: std::path::PathBuf,
+    },
     /// Persist preferences to `preferences.json`.
     PersistPreferences(Box<UiPreferences>),
     /// The appearance settings changed; re-apply the theme.
@@ -200,6 +209,7 @@ impl AppState {
         let profile = profile_for(&preferences);
         let mut pads = Pads::new();
         pads.set_key_labels(&profile.pad_labels());
+        pads.apply_grid(profile.grid);
         pads.select(PadId::new(0));
 
         let pad_settings = vec![PadSettings::default(); PAD_COUNT];
@@ -236,13 +246,34 @@ impl AppState {
         self.profile().id
     }
 
+    /// Current pad-surface size.
+    pub fn grid_size(&self) -> GridSize {
+        self.settings.draft().keyboard.grid_size
+    }
+
+    /// Apply a pad-surface size live and keep it in the settings draft so the
+    /// next Apply persists it.
+    pub fn set_grid_size(&mut self, grid: GridSize) {
+        self.settings.draft_mut().keyboard.grid_size = grid;
+        self.router.set_grid(grid);
+        self.pads.apply_grid(grid);
+        self.pads.set_key_labels(&self.profile().pad_labels());
+        if self.pads.selected().index() >= grid.pad_count() {
+            self.pads.select(PadId::new(0));
+            self.inspector
+                .select(PadId::new(0), self.pad_settings[0].clone());
+        }
+    }
+
     /// Switch profile. Returns `false` when the id is not a built-in profile.
     pub fn set_profile(&mut self, id: ProfileId) -> bool {
-        let Some(profile) = KeyboardProfile::builtin(id) else {
+        let Some(base) = KeyboardProfile::builtin(id) else {
             return false;
         };
+        let profile = base.with_grid(self.grid_size());
         self.pads.set_key_labels(&profile.pad_labels());
-        self.router.set_profile(profile.clone());
+        self.pads.apply_grid(profile.grid);
+        self.router.set_profile(profile);
         self.settings.draft_mut().keyboard.profile = id;
         true
     }
@@ -407,7 +438,8 @@ impl AppState {
                     .warning("A kit is already loading; wait for it to finish.");
             }
             other => {
-                self.notifications.toast(Severity::Warning, other.to_string());
+                self.notifications
+                    .toast(Severity::Warning, other.to_string());
             }
         }
     }
@@ -419,8 +451,10 @@ impl AppState {
             message,
             DialogAction::new(DialogIntent::Retry),
         );
-        self.notifications
-            .add_dialog_action(DialogAction::labelled(DialogIntent::Dismiss, "Keep current kit"));
+        self.notifications.add_dialog_action(DialogAction::labelled(
+            DialogIntent::Dismiss,
+            "Keep current kit",
+        ));
     }
 
     /// Report missing samples with a relink action.
@@ -430,8 +464,10 @@ impl AppState {
             detail,
             DialogAction::new(DialogIntent::RelinkSamples),
         );
-        self.notifications
-            .add_dialog_action(DialogAction::labelled(DialogIntent::Dismiss, "Play silent pads"));
+        self.notifications.add_dialog_action(DialogAction::labelled(
+            DialogIntent::Dismiss,
+            "Play silent pads",
+        ));
     }
 
     /// Load an edit session for the selected pad and build its peaks.
@@ -492,6 +528,7 @@ impl AppState {
 fn profile_for(preferences: &UiPreferences) -> KeyboardProfile {
     KeyboardProfile::builtin(preferences.keyboard.profile)
         .unwrap_or_else(KeyboardProfile::finding_keypad)
+        .with_grid(preferences.keyboard.grid_size)
 }
 
 #[cfg(test)]
@@ -511,9 +548,23 @@ mod tests {
     #[test]
     fn key_labels_come_from_the_active_profile() {
         let state = AppState::new(UiPreferences::default());
+        assert_eq!(state.grid_size(), GridSize::ThreeByThree);
+        assert_eq!(state.pads.get(PadId::new(0)).key_label, "Q");
+        assert_eq!(state.pads.get(PadId::new(8)).key_label, "C");
+        assert_eq!(
+            state.pads.get(PadId::new(0)).key_label,
+            GridSize::ThreeByThree.key_labels()[0]
+        );
+        assert_eq!(state.status().profile, "Finding 35-key keypad");
+    }
+
+    #[test]
+    fn switching_to_4x4_relabels_to_the_number_row() {
+        let mut state = AppState::new(UiPreferences::default());
+        state.set_grid_size(GridSize::FourByFour);
         assert_eq!(state.pads.get(PadId::new(0)).key_label, "1");
         assert_eq!(state.pads.get(PadId::new(15)).key_label, "V");
-        assert_eq!(state.status().profile, "Finding 35-key keypad");
+        assert_eq!(state.router.profile().pad_count(), 16);
     }
 
     #[test]

@@ -3,13 +3,13 @@
 use egui::{RichText, Ui};
 
 use crate::app::actions::Action;
+use crate::state::AppState;
 use crate::state::inspector::{MAX_LAYERS, MAX_VOLUME_DB, MIN_VOLUME_DB, PlaybackMode};
 use crate::state::keymap::key_label;
 use crate::state::pad::PadId;
-use crate::state::AppState;
 
-use super::theme::Theme;
 use super::UiLocal;
+use super::theme::Theme;
 
 /// Draw the inspector for the selected pad.
 pub fn show(
@@ -240,7 +240,11 @@ fn playback(ui: &mut Ui, theme: &Theme, state: &mut AppState) {
                 if let Some(group) = &mut draft.choke_group {
                     ui.add(egui::DragValue::new(group).range(1..=8).speed(1.0));
                 } else {
-                    ui.label(RichText::new("none").color(theme.text_disabled).size(theme.small));
+                    ui.label(
+                        RichText::new("none")
+                            .color(theme.text_disabled)
+                            .size(theme.small),
+                    );
                 }
             });
             ui.end_row();

@@ -3,11 +3,11 @@
 use egui::{RichText, Ui};
 
 use crate::app::actions::Action;
-use crate::state::kit::{KitId, LoadStatus};
 use crate::state::AppState;
+use crate::state::kit::{KitId, LoadStatus};
 
-use super::theme::Theme;
 use super::UiLocal;
+use super::theme::Theme;
 
 /// Draw the kit browser.
 pub fn show(
@@ -39,6 +39,37 @@ pub fn show(
             local.new_kit_name.clear();
         }
     });
+
+    ui.add_space(theme.sm);
+    ui.horizontal(|ui| {
+        ui.label(
+            RichText::new("Sample folder")
+                .color(theme.text_muted)
+                .size(theme.small),
+        );
+        ui.add(
+            egui::TextEdit::singleline(&mut local.sample_folder)
+                .hint_text("D:\\Samples")
+                .desired_width(340.0),
+        );
+        if ui
+            .button("Create kit from folder")
+            .on_hover_text("Import every supported audio file into a new kit")
+            .clicked()
+        {
+            actions.push(Action::CreateKitFromFolder {
+                name: local.new_kit_name.trim().to_owned(),
+                folder: std::path::PathBuf::from(local.sample_folder.trim()),
+            });
+        }
+    });
+    ui.label(
+        RichText::new(
+            "The kit name above is used; the folder is scanned for WAV, AIFF, FLAC, MP3, and OGG.",
+        )
+        .color(theme.text_disabled)
+        .size(theme.small),
+    );
 
     ui.add_space(theme.sm);
     load_status(ui, theme, state, actions);
@@ -163,8 +194,7 @@ fn load_status(ui: &mut Ui, theme: &Theme, state: &AppState, actions: &mut Vec<A
         }
         LoadStatus::Ready { kit } => {
             ui.label(
-                RichText::new(format!("{} is ready", kit_label(state, *kit)))
-                    .color(theme.success),
+                RichText::new(format!("{} is ready", kit_label(state, *kit))).color(theme.success),
             );
         }
         LoadStatus::Failed { kit, message } => {

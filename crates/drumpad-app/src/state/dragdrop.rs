@@ -110,9 +110,7 @@ pub enum DropError {
 impl fmt::Display for DropError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::NoSupportedFiles => {
-                formatter.write_str("no supported audio files in this drop")
-            }
+            Self::NoSupportedFiles => formatter.write_str("no supported audio files in this drop"),
             Self::NoEmptyPads => formatter.write_str("there are no empty pads left to assign"),
         }
     }
@@ -248,7 +246,14 @@ mod tests {
 
     #[test]
     fn supported_extensions_are_recognised_case_insensitively() {
-        for name in ["kick.wav", "kick.WAV", "hit.Aif", "snare.flac", "loop.mp3", "vox.ogg"] {
+        for name in [
+            "kick.wav",
+            "kick.WAV",
+            "hit.Aif",
+            "snare.flac",
+            "loop.mp3",
+            "vox.ogg",
+        ] {
             assert!(is_supported_audio(Path::new(name)), "{name}");
         }
         for name in ["notes.txt", "kick.wav.bak", "image.png", "noext"] {
@@ -295,7 +300,10 @@ mod tests {
             .begin(&paths(&["kick.wav"]), &pads, Some(PadId::new(7)))
             .expect("preview")
             .clone();
-        assert_eq!(preview.targets, vec![(PadId::new(7), PathBuf::from("kick.wav"))]);
+        assert_eq!(
+            preview.targets,
+            vec![(PadId::new(7), PathBuf::from("kick.wav"))]
+        );
     }
 
     #[test]
@@ -303,7 +311,11 @@ mod tests {
         let mut controller = DropController::new();
         let mut pads = Pads::new();
         controller
-            .begin(&paths(&["D:\\Samples\\kick.wav"]), &pads, Some(PadId::new(3)))
+            .begin(
+                &paths(&["D:\\Samples\\kick.wav"]),
+                &pads,
+                Some(PadId::new(3)),
+            )
             .expect("preview");
         let undo = controller.confirm(&mut pads).expect("confirm");
         assert_eq!(pads.get(PadId::new(3)).sample.as_deref(), Some("kick.wav"));
@@ -347,11 +359,7 @@ mod tests {
         let mut pads = Pads::new();
         pads.select(PadId::new(4));
         let preview = controller
-            .begin(
-                &paths(&["a.wav", "b.wav", "c.wav"]),
-                &pads,
-                None,
-            )
+            .begin(&paths(&["a.wav", "b.wav", "c.wav"]), &pads, None)
             .expect("preview")
             .clone();
         assert_eq!(

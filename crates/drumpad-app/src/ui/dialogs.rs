@@ -3,9 +3,9 @@
 use egui::{Align2, RichText, vec2};
 
 use crate::app::actions::Action;
+use crate::state::AppState;
 use crate::state::notifications::{Dialog, DialogAction, Severity};
 use crate::state::pad::PadId;
-use crate::state::AppState;
 
 use super::theme::Theme;
 
@@ -88,26 +88,25 @@ fn dialog(ctx: &egui::Context, theme: &Theme, state: &AppState, actions: &mut Ve
         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
         .min_width(440.0)
         .show(ctx, |ui| {
-            ui.label(RichText::new(&dialog.message).color(theme.text).size(theme.body));
+            ui.label(
+                RichText::new(&dialog.message)
+                    .color(theme.text)
+                    .size(theme.body),
+            );
             ui.add_space(theme.md);
             ui.separator();
             ui.add_space(theme.sm);
             ui.horizontal(|ui| {
                 for action in &dialog.actions {
                     let is_primary = std::ptr::eq(action, dialog.primary());
-                    let button = egui::Button::new(
-                        RichText::new(&action.label).color(if is_primary {
+                    let button =
+                        egui::Button::new(RichText::new(&action.label).color(if is_primary {
                             theme.bg
                         } else {
                             theme.text
-                        }),
-                    )
-                    .fill(if is_primary {
-                        color
-                    } else {
-                        theme.panel_alt
-                    })
-                    .min_size(vec2(130.0, 34.0));
+                        }))
+                        .fill(if is_primary { color } else { theme.panel_alt })
+                        .min_size(vec2(130.0, 34.0));
                     if ui.add(button).clicked() {
                         actions.push(Action::ChooseDialog(action.intent));
                     }
@@ -200,7 +199,7 @@ pub fn describe(dialog: &Dialog) -> String {
 
 /// The pad under the pointer for a drop, when the grid has been drawn this
 /// frame. Returns `None` when the pointer is outside the grid.
-pub fn drop_target(pointer: Option<egui::Pos2>, cells: &[egui::Rect; 16]) -> Option<PadId> {
+pub fn drop_target(pointer: Option<egui::Pos2>, cells: &[egui::Rect]) -> Option<PadId> {
     let pointer = pointer?;
     cells
         .iter()

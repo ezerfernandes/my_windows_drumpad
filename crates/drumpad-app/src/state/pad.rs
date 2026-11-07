@@ -20,9 +20,7 @@ pub const PAD_COLUMNS: usize = 4;
 pub const PAD_ROWS: usize = 4;
 
 /// Stable 0-based pad index, always `< [`PAD_COUNT`].
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct PadId(u8);
 
@@ -84,10 +82,22 @@ impl PadId {
 
     /// Row-major neighbour for keyboard grid navigation.
     pub fn step(self, d_row: isize, d_col: isize) -> Option<Self> {
-        let row = self.row() as isize + d_row;
-        let column = self.column() as isize + d_col;
-        if (0..PAD_ROWS as isize).contains(&row) && (0..PAD_COLUMNS as isize).contains(&column) {
-            Some(Self::new(row as usize * PAD_COLUMNS + column as usize))
+        self.step_in(PAD_COLUMNS, PAD_ROWS, d_row, d_col)
+    }
+
+    /// Row-major neighbour on a surface with `columns` x `rows` pads.
+    pub fn step_in(self, columns: usize, rows: usize, d_row: isize, d_col: isize) -> Option<Self> {
+        let columns = columns.max(1);
+        let rows = rows.max(1);
+        let index = self.index();
+        if index >= columns * rows {
+            return None;
+        }
+        let row = (index / columns) as isize + d_row;
+        let column = (index % columns) as isize + d_col;
+        if (0..rows as isize).contains(&row) && (0..columns as isize).contains(&column) {
+            let next = row as usize * columns + column as usize;
+            (next < columns * rows).then(|| Self::new(next))
         } else {
             None
         }
@@ -127,6 +137,10 @@ pub struct PadState {
     pub velocity_ring: f32,
     /// Colour token index used by the theme, `0..`.
     pub color: u8,
+    /// Row on the active surface (not the 16-pad storage grid).
+    pub surface_row: u8,
+    /// Column on the active surface.
+    pub surface_col: u8,
 }
 
 impl PadState {
@@ -145,6 +159,8 @@ impl PadState {
             velocity: 0.0,
             velocity_ring: 0.0,
             color: (id.column() as u8) % 4,
+            surface_row: id.row() as u8,
+            surface_col: id.column() as u8,
         }
     }
 
@@ -256,6 +272,21 @@ impl Pads {
         }
     }
 
+    /// Move the selection on a 9- or 16-pad surface.
+    pub fn move_selection_in(
+        &mut self,
+        grid: crate::state::prefs::GridSize,
+        d_row: isize,
+        d_col: isize,
+    ) {
+        if let Some(next) = self
+            .selected
+            .step_in(grid.columns(), grid.rows(), d_row, d_col)
+        {
+            self.select(next);
+        }
+    }
+
     /// First pad without a sample, used by drag-and-drop batch assignment.
     pub fn first_empty(&self) -> Option<PadId> {
         self.pads.iter().find(|pad| !pad.assigned).map(|pad| pad.id)
@@ -282,6 +313,17 @@ impl Pads {
     pub fn set_key_labels(&mut self, labels: &[String; PAD_COUNT]) {
         for (pad, label) in self.pads.iter_mut().zip(labels.iter()) {
             pad.key_label.clone_from(label);
+        }
+    }
+
+    /// Recompute surface row/column and colour for a 4x4 or 3x3 surface.
+    pub fn apply_grid(&mut self, grid: crate::state::prefs::GridSize) {
+        let columns = grid.columns().max(1);
+        for pad in &mut self.pads {
+            let index = pad.id.index();
+            pad.surface_row = (index / columns) as u8;
+            pad.surface_col = (index % columns) as u8;
+            pad.color = pad.surface_col % 4;
         }
     }
 
@@ -373,7 +415,11 @@ mod tests {
         pads.move_selection(0, 2);
         assert_eq!(pads.selected(), PadId::new(11));
         pads.move_selection(8, 0);
-        assert_eq!(pads.selected(), PadId::new(11), "moving past an edge is a no-op");
+        assert_eq!(
+            pads.selected(),
+            PadId::new(11),
+            "moving past an edge is a no-op"
+        );
     }
 
     #[test]

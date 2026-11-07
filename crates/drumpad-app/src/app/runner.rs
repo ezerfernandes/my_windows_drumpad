@@ -20,8 +20,9 @@ use winit::keyboard::{ModifiersState, PhysicalKey};
 use winit::raw_window_handle::{HasWindowHandle as _, RawWindowHandle};
 use winit::window::WindowId;
 
-use crate::app::actions::{dispatch, Action};
+use crate::app::actions::{Action, dispatch};
 use crate::app::hotkeys::{routes_to_pads, shortcut};
+use crate::app::kits::KitService;
 use crate::state::keymap::KeyInput;
 use crate::state::notifications::{DialogAction, DialogIntent};
 use crate::state::prefs::UiPreferences;
@@ -168,7 +169,10 @@ fn primary_work_area(event_loop: &ActiveEventLoop) -> (f64, f64) {
     }
 
     let physical = monitor.size();
-    (physical.width as f64 / scale, physical.height as f64 / scale)
+    (
+        physical.width as f64 / scale,
+        physical.height as f64 / scale,
+    )
 }
 
 /// Physical work area of the primary monitor, excluding the taskbar.
@@ -201,14 +205,7 @@ fn windows_work_area_physical() -> Option<(u32, u32)> {
     };
     // SAFETY: `rect` is a valid, properly aligned RECT for the duration of the
     // call, and SPI_GETWORKAREA writes exactly one RECT.
-    let ok = unsafe {
-        SystemParametersInfoW(
-            SPI_GETWORKAREA,
-            0,
-            (&raw mut rect).cast(),
-            0,
-        )
-    };
+    let ok = unsafe { SystemParametersInfoW(SPI_GETWORKAREA, 0, (&raw mut rect).cast(), 0) };
     if ok == 0 {
         return None;
     }
@@ -223,10 +220,7 @@ fn windows_work_area_physical() -> Option<(u32, u32)> {
 /// reject the pair, and both fit inside the work area.
 fn fitted_window_sizes(
     work_area: (f64, f64),
-) -> (
-    winit::dpi::LogicalSize<f64>,
-    winit::dpi::LogicalSize<f64>,
-) {
+) -> (winit::dpi::LogicalSize<f64>, winit::dpi::LogicalSize<f64>) {
     let (desired_width, desired_height) = DESIRED_WINDOW;
     let (min_width, min_height) = MIN_WINDOW;
     let cap_width = (work_area.0 * WORK_WIDTH_FRACTION).max(320.0);
@@ -298,6 +292,7 @@ struct AppShell {
     queued_actions: Vec<Action>,
     gl: Option<Arc<glow::Context>>,
     audio: Option<MvpAudioRuntime>,
+    kits: Option<KitService>,
     audio_attempted: bool,
     audio_error: Option<String>,
     last_audio_poll: Instant,
@@ -308,6 +303,12 @@ impl AppShell {
     fn new(options: AppOptions, proxy: EventLoopProxy<UserEvent>) -> Self {
         let state = AppState::new(options.preferences.clone());
         let ui = UiRoot::new(&options.preferences);
+
+        // The durable kit library is opened by the folder-import wiring. Until
+        // that lands, the demo runtime stays the initial sound and the catalogue
+        // is seeded by `AppState::new`.
+        let kits: Option<KitService> = None;
+
         Self {
             state,
             ui,
@@ -322,6 +323,7 @@ impl AppShell {
             queued_actions: Vec::new(),
             gl: None,
             audio: None,
+            kits,
             audio_attempted: false,
             audio_error: None,
             last_audio_poll: Instant::now(),
@@ -370,17 +372,14 @@ impl AppShell {
             .map(|window| window.window_handle().map(|handle| handle.as_raw()).ok())
             .flatten();
 
-        let context_attributes =
-            glutin::context::ContextAttributesBuilder::new().build(raw_handle);
+        let context_attributes = glutin::context::ContextAttributesBuilder::new().build(raw_handle);
         let fallback_attributes = glutin::context::ContextAttributesBuilder::new()
             .with_context_api(glutin::context::ContextApi::Gles(None))
             .build(raw_handle);
         let not_current = unsafe {
             gl_display
                 .create_context(&gl_config, &context_attributes)
-                .or_else(|_| {
-                    gl_display.create_context(&gl_config, &fallback_attributes)
-                })
+                .or_else(|_| gl_display.create_context(&gl_config, &fallback_attributes))
         };
         let not_current = match not_current {
             Ok(context) => context,
@@ -415,10 +414,7 @@ impl AppShell {
         let surface_attributes =
             glutin::surface::SurfaceAttributesBuilder::<glutin::surface::WindowSurface>::new()
                 .build(
-                    window
-                        .window_handle()
-                        .expect("window handle")
-                        .as_raw(),
+                    window.window_handle().expect("window handle").as_raw(),
                     width,
                     height,
                 );
@@ -478,12 +474,11 @@ impl AppShell {
 
         let egui = egui_glow::EguiGlow::new(event_loop, gl.clone(), None, None, true);
         let proxy = std::sync::Mutex::new(self.proxy.clone());
-        egui.egui_ctx
-            .set_request_repaint_callback(move |info| {
-                if let Ok(proxy) = proxy.lock() {
-                    let _ = proxy.send_event(UserEvent::Redraw(info.delay));
-                }
-            });
+        egui.egui_ctx.set_request_repaint_callback(move |info| {
+            if let Ok(proxy) = proxy.lock() {
+                let _ = proxy.send_event(UserEvent::Redraw(info.delay));
+            }
+        });
         egui.egui_ctx.set_visuals(egui::Visuals::dark());
 
         gl_window.window.set_visible(true);
@@ -514,10 +509,27 @@ impl AppShell {
     fn start_audio(&mut self) {
         self.audio_attempted = true;
         match MvpAudioRuntime::start() {
-            Ok(runtime) => {
+            Ok(mut runtime) => {
                 let status = status_for(&runtime);
-                if let Ok(kit) = drumpad_model::kit::demo::demo_kit() {
-                    self.state.apply_kit(&kit);
+                // Load the active library kit. On failure the runtime keeps the
+                // demo bank it started with, and the dialog explains why.
+                let active = self.kits.as_ref().and_then(|service| {
+                    let kit = service.active()?.clone();
+                    let dir = service.active_dir()?.to_path_buf();
+                    Some((kit, dir))
+                });
+                if let Some((kit, dir)) = active {
+                    match runtime.load_kit(&kit, &dir) {
+                        Ok(()) => {
+                            tracing::info!(kit = %kit.metadata.name, "active kit loaded at startup");
+                            self.state.apply_kit(&kit);
+                        }
+                        Err(error) => {
+                            let message = format!("{}: {error}", kit.metadata.name);
+                            tracing::warn!(%message, "active kit failed; keeping the demo bank");
+                            self.state.report_load_failure(message);
+                        }
+                    }
                 }
                 self.state.set_audio_status(status);
                 tracing::info!(
@@ -545,10 +557,12 @@ impl AppShell {
                     ),
                     DialogAction::labelled(DialogIntent::OpenSettings, "Check audio settings"),
                 );
-                self.state.notifications.add_dialog_action(DialogAction::labelled(
-                    DialogIntent::Dismiss,
-                    "Continue silently",
-                ));
+                self.state
+                    .notifications
+                    .add_dialog_action(DialogAction::labelled(
+                        DialogIntent::Dismiss,
+                        "Continue silently",
+                    ));
                 self.audio_error = Some(message);
             }
         }
@@ -565,10 +579,7 @@ impl AppShell {
         };
         let size = gl_window.window.inner_size();
         let scale = gl_window.window.scale_factor().max(0.1);
-        let logical = (
-            size.width as f64 / scale,
-            size.height as f64 / scale,
-        );
+        let logical = (size.width as f64 / scale, size.height as f64 / scale);
         let zoom = fit_zoom_for(logical);
         if (zoom - self.last_fit_zoom).abs() > f32::EPSILON {
             tracing::info!(
@@ -587,7 +598,8 @@ impl AppShell {
         self.ui.set_fit_zoom(zoom);
     }
 
-    fn poll_audio(&mut self, now: Instant) {        if now.saturating_duration_since(self.last_audio_poll) < Duration::from_millis(100) {
+    fn poll_audio(&mut self, now: Instant) {
+        if now.saturating_duration_since(self.last_audio_poll) < Duration::from_millis(100) {
             return;
         }
         self.last_audio_poll = now;
@@ -643,10 +655,12 @@ impl AppShell {
                     reason,
                     DialogAction::new(DialogIntent::OpenSettings),
                 );
-                self.state.notifications.add_dialog_action(DialogAction::labelled(
-                    DialogIntent::Dismiss,
-                    "Continue silently",
-                ));
+                self.state
+                    .notifications
+                    .add_dialog_action(DialogAction::labelled(
+                        DialogIntent::Dismiss,
+                        "Continue silently",
+                    ));
             }
         }
     }
@@ -656,6 +670,175 @@ impl AppShell {
         self.apply(effects);
     }
 
+    /// Refresh the UI kit catalogue from the durable library.
+    fn sync_catalogue(&mut self) {
+        let Some(service) = self.kits.as_mut() else {
+            return;
+        };
+        if let Err(error) = service.refresh(&mut self.state.kits) {
+            tracing::warn!(%error, "kit catalogue refresh failed");
+            self.state
+                .notifications
+                .warning(format!("Kit list could not refresh: {error}"));
+        }
+    }
+
+    /// Push a kit into the running audio runtime.
+    fn apply_kit_to_audio(
+        &mut self,
+        kit: &drumpad_model::kit::Kit,
+        dir: &std::path::Path,
+    ) -> Result<(), String> {
+        let Some(audio) = self.audio.as_mut() else {
+            return Err("audio is not running".to_owned());
+        };
+        audio
+            .load_kit(kit, dir)
+            .map_err(|error| format!("{}: {error}", kit.metadata.name))
+    }
+
+    fn activate_kit(&mut self, kit: &drumpad_model::kit::Kit, dir: &std::path::Path) {
+        match self.apply_kit_to_audio(kit, dir) {
+            Ok(()) => {
+                tracing::info!(kit = %kit.metadata.name, "kit loaded into the audio runtime");
+                self.state.apply_kit(kit);
+                self.state.kits.set_dirty(false);
+            }
+            Err(error) => self.state.report_load_failure(error),
+        }
+    }
+
+    /// Execute one durable kit request against [`KitService`].
+    fn handle_kit_request(&mut self, request: crate::state::kit::KitRequest) {
+        use crate::state::kit::KitRequest;
+
+        if self.kits.is_none() {
+            self.state.notifications.error(
+                "Kit library is unavailable",
+                "The app could not open its kit folder.",
+                DialogAction::new(DialogIntent::OpenLogFolder),
+            );
+            return;
+        }
+
+        match request {
+            KitRequest::Load(ui_id) => {
+                let outcome = self.kits.as_mut().expect("checked above").load_ui(ui_id.0);
+                match outcome {
+                    Ok((kit, dir)) => match self.apply_kit_to_audio(&kit, &dir) {
+                        Ok(()) => {
+                            self.state.apply_kit(&kit);
+                            self.state.kits.finish_load(ui_id, Ok(()));
+                            self.state.kits.set_dirty(false);
+                        }
+                        Err(error) => {
+                            self.state.kits.finish_load(ui_id, Err(error.clone()));
+                            self.state.report_load_failure(error);
+                        }
+                    },
+                    Err(error) => {
+                        self.state.kits.finish_load(ui_id, Err(error.clone()));
+                        self.state.report_load_failure(error);
+                    }
+                }
+                self.sync_catalogue();
+            }
+            KitRequest::Create(ui_id) => {
+                let name = self
+                    .state
+                    .kits
+                    .get(ui_id)
+                    .map(|kit| kit.name.clone())
+                    .unwrap_or_default();
+                let outcome = self.kits.as_mut().expect("checked above").create(&name);
+                match outcome {
+                    Ok((kit, dir)) => {
+                        self.sync_catalogue();
+                        self.activate_kit(&kit, &dir);
+                    }
+                    Err(error) => {
+                        self.state.notifications.error(
+                            "Kit could not be created",
+                            error,
+                            DialogAction::new(DialogIntent::Dismiss),
+                        );
+                    }
+                }
+            }
+            KitRequest::Save(ui_id) => {
+                let outcome = self.kits.as_mut().expect("checked above").save_active();
+                match outcome {
+                    Ok(()) => {
+                        self.state.kits.set_dirty(false);
+                        self.state.kits.finish_load(ui_id, Ok(()));
+                        self.state.notifications.success("Kit saved.");
+                        self.sync_catalogue();
+                    }
+                    Err(error) => {
+                        self.state.notifications.error(
+                            "Kit could not be saved",
+                            error,
+                            DialogAction::new(DialogIntent::Dismiss),
+                        );
+                    }
+                }
+            }
+            KitRequest::Delete(ui_id) => {
+                let outcome = self
+                    .kits
+                    .as_mut()
+                    .expect("checked above")
+                    .delete_ui(ui_id.0);
+                match outcome {
+                    Ok(()) => {
+                        self.sync_catalogue();
+                        self.state.notifications.success("Kit deleted.");
+                        let fallback = self.kits.as_ref().and_then(|service| {
+                            let kit = service.active()?.clone();
+                            let dir = service.active_dir()?.to_path_buf();
+                            Some((kit, dir))
+                        });
+                        if let Some((kit, dir)) = fallback {
+                            self.activate_kit(&kit, &dir);
+                        }
+                    }
+                    Err(error) => {
+                        self.state.notifications.error(
+                            "Kit could not be deleted",
+                            error,
+                            DialogAction::new(DialogIntent::Dismiss),
+                        );
+                    }
+                }
+            }
+            KitRequest::Rename(ui_id) => {
+                let name = self
+                    .state
+                    .kits
+                    .get(ui_id)
+                    .map(|kit| kit.name.clone())
+                    .unwrap_or_default();
+                let outcome = self
+                    .kits
+                    .as_mut()
+                    .expect("checked above")
+                    .rename_ui(ui_id.0, &name);
+                match outcome {
+                    Ok(()) => {
+                        self.sync_catalogue();
+                        self.state.notifications.success("Kit renamed.");
+                    }
+                    Err(error) => {
+                        self.state.notifications.error(
+                            "Kit could not be renamed",
+                            error,
+                            DialogAction::new(DialogIntent::Dismiss),
+                        );
+                    }
+                }
+            }
+        }
+    }
     fn apply(&mut self, effects: Vec<Effect>) {
         for effect in effects {
             match effect {
@@ -682,12 +865,82 @@ impl AppShell {
                 }
                 Effect::Metronome(on) => tracing::debug!(on, "metronome"),
                 Effect::Kit(request) => {
-                    // The kit service belongs to the model pair. Until it is
-                    // wired, report the request instead of pretending it ran.
-                    tracing::info!(?request, "kit request");
-                    self.state.notifications.info(format!(
-                        "Kit request queued: {request:?}. The kit service is not wired yet."
-                    ));
+                    if self.kits.is_some() {
+                        self.handle_kit_request(request);
+                    } else {
+                        tracing::info!(?request, "kit request before the library is enabled");
+                        self.state.notifications.info(
+                            "The kit library is not enabled in this build; the demo kit stays loaded.",
+                        );
+                    }
+                }
+                Effect::DuplicateKit(source) => {
+                    let outcome = self
+                        .kits
+                        .as_mut()
+                        .map(|service| service.duplicate_ui(source.0))
+                        .unwrap_or_else(|| Err("kit library is unavailable".to_owned()));
+                    match outcome {
+                        Ok(()) => {
+                            self.sync_catalogue();
+                            self.state.notifications.success("Kit duplicated.");
+                        }
+                        Err(error) => {
+                            self.state.notifications.error(
+                                "Kit could not be duplicated",
+                                error,
+                                DialogAction::new(DialogIntent::Dismiss),
+                            );
+                        }
+                    }
+                }
+                Effect::ImportKit { name, folder } => {
+                    let outcome = self
+                        .kits
+                        .as_mut()
+                        .map(|service| service.import_folder(&name, &folder))
+                        .unwrap_or_else(|| Err("kit library is unavailable".to_owned()));
+                    match outcome {
+                        Ok(outcome) => {
+                            tracing::info!(
+                                kit = %outcome.kit.metadata.name,
+                                imported = outcome.imported,
+                                rejected = outcome.rejected.len(),
+                                skipped = outcome.skipped,
+                                "kit imported from folder"
+                            );
+                            self.sync_catalogue();
+                            match self.apply_kit_to_audio(&outcome.kit, &outcome.kit_dir) {
+                                Ok(()) => self.state.apply_kit(&outcome.kit),
+                                Err(error) => self.state.report_load_failure(error),
+                            }
+                            self.state.notifications.success(format!(
+                                "{}: {}",
+                                outcome.kit.metadata.name, outcome.summary
+                            ));
+                            if !outcome.rejected.is_empty() {
+                                self.state.notifications.warning(format!(
+                                    "{} file(s) were skipped: {}",
+                                    outcome.rejected.len(),
+                                    outcome.rejected.join("; ")
+                                ));
+                            }
+                        }
+                        Err(error) => {
+                            tracing::warn!(%error, "kit import failed");
+                            self.state.notifications.error(
+                                "Kit import failed",
+                                error,
+                                DialogAction::new(DialogIntent::OpenSettings),
+                            );
+                            self.state
+                                .notifications
+                                .add_dialog_action(DialogAction::labelled(
+                                    DialogIntent::Dismiss,
+                                    "Choose another folder",
+                                ));
+                        }
+                    }
                 }
                 Effect::PersistPreferences(preferences) => {
                     let path = self.options.preferences_path();
@@ -716,9 +969,9 @@ impl AppShell {
                     open_folder(self.options.paths.crash_dir());
                 }
                 Effect::RelinkSamples => {
-                    self.state.notifications.info(
-                        "Relink flow requested. The sample service owns the file search.",
-                    );
+                    self.state
+                        .notifications
+                        .info("Relink flow requested. The sample service owns the file search.");
                 }
                 Effect::PadSettingsChanged(pad) => {
                     tracing::debug!(pad = pad.number(), "pad settings changed");
@@ -789,7 +1042,8 @@ impl AppShell {
                 gl,
                 ..
             } = self;
-            let (Some(egui), Some(gl_window), Some(gl)) = (egui.as_mut(), gl_window.as_ref(), gl.as_ref())
+            let (Some(egui), Some(gl_window), Some(gl)) =
+                (egui.as_mut(), gl_window.as_ref(), gl.as_ref())
             else {
                 return;
             };
@@ -1015,7 +1269,10 @@ mod tests {
     #[test]
     fn a_1382x777_client_scales_the_1440x900_design_down() {
         let zoom = fit_zoom_for((1382.4, 777.6));
-        assert!(zoom < 1.0, "the design does not fit, zoom must shrink: {zoom}");
+        assert!(
+            zoom < 1.0,
+            "the design does not fit, zoom must shrink: {zoom}"
+        );
         let canvas_w = 1382.4 / f64::from(zoom);
         let canvas_h = 777.6 / f64::from(zoom);
         assert!(canvas_w >= DESIGN_WIDTH - 1.0, "canvas width {canvas_w}");

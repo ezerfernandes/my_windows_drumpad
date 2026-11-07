@@ -88,7 +88,9 @@ impl PeakSet {
             let previous = levels.last().expect("level exists");
             let mut folded = Vec::with_capacity(previous.buckets.len().div_ceil(2));
             for pair in previous.buckets.chunks(2) {
-                let min = pair.iter().fold(f32::INFINITY, |min, peak| min.min(peak.min));
+                let min = pair
+                    .iter()
+                    .fold(f32::INFINITY, |min, peak| min.min(peak.min));
                 let max = pair
                     .iter()
                     .fold(f32::NEG_INFINITY, |max, peak| max.max(peak.max));
@@ -114,9 +116,9 @@ impl PeakSet {
 
     /// The level whose bucket count is closest to `target_buckets`.
     pub fn level_for_buckets(&self, target_buckets: usize) -> Option<&PeakLevel> {
-        self.levels.iter().min_by_key(|level| {
-            level.buckets.len().abs_diff(target_buckets.max(1))
-        })
+        self.levels
+            .iter()
+            .min_by_key(|level| level.buckets.len().abs_diff(target_buckets.max(1)))
     }
 
     /// The level to draw when `visible_frames` are on screen across
@@ -127,11 +129,9 @@ impl PeakSet {
     /// ever rescanning the source.
     pub fn level_for_span(&self, visible_frames: usize, screen_width: usize) -> Option<&PeakLevel> {
         let target_frames_per_bucket = (visible_frames / (screen_width.max(1) * 2).max(1)).max(1);
-        self.levels.iter().min_by_key(|level| {
-            level
-                .frames_per_bucket
-                .abs_diff(target_frames_per_bucket)
-        })
+        self.levels
+            .iter()
+            .min_by_key(|level| level.frames_per_bucket.abs_diff(target_frames_per_bucket))
     }
 
     /// Peak range across the whole sample, used to scale the drawing.
@@ -346,10 +346,7 @@ mod tests {
                 max: 0.9
             }
         );
-        assert_eq!(
-            peaks.levels[0].buckets[1],
-            Peak { min: 0.0, max: 0.2 }
-        );
+        assert_eq!(peaks.levels[0].buckets[1], Peak { min: 0.0, max: 0.2 });
     }
 
     #[test]
@@ -432,10 +429,7 @@ mod tests {
         let peaks = PeakSet::build(&samples, 1, BASE_BUCKET_FRAMES);
         let elapsed = start.elapsed();
         assert!(!peaks.is_empty());
-        assert!(
-            elapsed.as_millis() < 500,
-            "peak build took {elapsed:?}"
-        );
+        assert!(elapsed.as_millis() < 500, "peak build took {elapsed:?}");
     }
 
     #[test]
@@ -492,7 +486,10 @@ mod tests {
         let before = view.time_to_x(total, anchor, 1_000.0);
         view.zoom_around(total, anchor, 2.0);
         let after = view.time_to_x(total, anchor, 1_000.0);
-        assert!((before - after).abs() < 1.0, "anchor moved {before} -> {after}");
+        assert!(
+            (before - after).abs() < 1.0,
+            "anchor moved {before} -> {after}"
+        );
     }
 
     #[test]
@@ -554,6 +551,12 @@ mod tests {
     #[test]
     fn overall_range_falls_back_to_full_scale_for_silence() {
         let peaks = PeakSet::build(&[0.0; 10], 1, 4);
-        assert_eq!(peaks.overall_range(), Peak { min: -1.0, max: 1.0 });
+        assert_eq!(
+            peaks.overall_range(),
+            Peak {
+                min: -1.0,
+                max: 1.0
+            }
+        );
     }
 }

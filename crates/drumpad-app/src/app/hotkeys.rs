@@ -27,12 +27,8 @@ pub fn shortcut(key: KeyCode, modifiers: ModifiersState, pressed: bool) -> Optio
     if modifiers.control_key() {
         return match key {
             KeyCode::Digit1 => Some(Action::Navigate(crate::state::navigation::View::Edit)),
-            KeyCode::Digit2 => Some(Action::Navigate(
-                crate::state::navigation::View::KitBrowser,
-            )),
-            KeyCode::Digit3 => Some(Action::Navigate(
-                crate::state::navigation::View::Settings,
-            )),
+            KeyCode::Digit2 => Some(Action::Navigate(crate::state::navigation::View::KitBrowser)),
+            KeyCode::Digit3 => Some(Action::Navigate(crate::state::navigation::View::Settings)),
             KeyCode::KeyZ => Some(if modifiers.shift_key() {
                 Action::RedoEdit
             } else {
@@ -40,9 +36,7 @@ pub fn shortcut(key: KeyCode, modifiers: ModifiersState, pressed: bool) -> Optio
             }),
             KeyCode::KeyY => Some(Action::RedoEdit),
             KeyCode::KeyS => Some(Action::SaveActiveKit),
-            KeyCode::KeyO => Some(Action::Navigate(
-                crate::state::navigation::View::KitBrowser,
-            )),
+            KeyCode::KeyO => Some(Action::Navigate(crate::state::navigation::View::KitBrowser)),
             KeyCode::Escape => Some(Action::Escape),
             _ => None,
         };
@@ -53,12 +47,20 @@ pub fn shortcut(key: KeyCode, modifiers: ModifiersState, pressed: bool) -> Optio
     }
 
     match key {
-        KeyCode::F11 => Some(Action::Navigate(crate::state::navigation::View::Performance)),
+        KeyCode::F11 => Some(Action::Navigate(
+            crate::state::navigation::View::Performance,
+        )),
         KeyCode::Escape => Some(Action::Escape),
         KeyCode::Enter | KeyCode::NumpadEnter => Some(Action::Confirm),
-        KeyCode::ArrowUp => Some(Action::MoveSelection { d_row: -1, d_col: 0 }),
+        KeyCode::ArrowUp => Some(Action::MoveSelection {
+            d_row: -1,
+            d_col: 0,
+        }),
         KeyCode::ArrowDown => Some(Action::MoveSelection { d_row: 1, d_col: 0 }),
-        KeyCode::ArrowLeft => Some(Action::MoveSelection { d_row: 0, d_col: -1 }),
+        KeyCode::ArrowLeft => Some(Action::MoveSelection {
+            d_row: 0,
+            d_col: -1,
+        }),
         KeyCode::ArrowRight => Some(Action::MoveSelection { d_row: 0, d_col: 1 }),
         _ => None,
     }
@@ -119,7 +121,10 @@ mod tests {
 
     #[test]
     fn ctrl_z_undoes_and_ctrl_shift_z_redoes() {
-        assert_eq!(shortcut(KeyCode::KeyZ, ctrl(), true), Some(Action::UndoEdit));
+        assert_eq!(
+            shortcut(KeyCode::KeyZ, ctrl(), true),
+            Some(Action::UndoEdit)
+        );
         let ctrl_shift = ModifiersState::CONTROL | ModifiersState::SHIFT;
         assert_eq!(
             shortcut(KeyCode::KeyZ, ctrl_shift, true),
@@ -141,14 +146,20 @@ mod tests {
             shortcut(KeyCode::F11, none(), true),
             Some(Action::Navigate(View::Performance))
         );
-        assert_eq!(shortcut(KeyCode::Escape, none(), true), Some(Action::Escape));
+        assert_eq!(
+            shortcut(KeyCode::Escape, none(), true),
+            Some(Action::Escape)
+        );
     }
 
     #[test]
     fn arrows_move_the_selection() {
         assert_eq!(
             shortcut(KeyCode::ArrowUp, none(), true),
-            Some(Action::MoveSelection { d_row: -1, d_col: 0 })
+            Some(Action::MoveSelection {
+                d_row: -1,
+                d_col: 0
+            })
         );
         assert_eq!(
             shortcut(KeyCode::ArrowRight, none(), true),

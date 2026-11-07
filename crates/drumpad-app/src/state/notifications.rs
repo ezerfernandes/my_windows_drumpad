@@ -265,7 +265,10 @@ impl Notifications {
     /// Add an action to the open dialog, if any.
     pub fn add_dialog_action(&mut self, action: DialogAction) {
         if let Some(dialog) = &mut self.dialog
-            && !dialog.actions.iter().any(|existing| existing.intent == action.intent)
+            && !dialog
+                .actions
+                .iter()
+                .any(|existing| existing.intent == action.intent)
         {
             dialog.actions.push(action);
         }
@@ -307,7 +310,11 @@ mod tests {
 
     #[test]
     fn every_error_dialog_has_at_least_one_concrete_action() {
-        let dialog = Dialog::error("Audio device lost", "The output device was unplugged.", DialogAction::new(DialogIntent::OpenSettings));
+        let dialog = Dialog::error(
+            "Audio device lost",
+            "The output device was unplugged.",
+            DialogAction::new(DialogIntent::OpenSettings),
+        );
         assert!(!dialog.actions.is_empty());
         assert_eq!(dialog.primary().intent, DialogIntent::OpenSettings);
         assert!(!dialog.primary().label.is_empty());
@@ -346,16 +353,8 @@ mod tests {
     #[test]
     fn the_error_helper_assigns_an_id_and_replaces_the_open_dialog() {
         let mut notifications = Notifications::new();
-        let first = notifications.error(
-            "First",
-            "one",
-            DialogAction::new(DialogIntent::Dismiss),
-        );
-        let second = notifications.error(
-            "Second",
-            "two",
-            DialogAction::new(DialogIntent::Retry),
-        );
+        let first = notifications.error("First", "one", DialogAction::new(DialogIntent::Dismiss));
+        let second = notifications.error("Second", "two", DialogAction::new(DialogIntent::Retry));
         assert_ne!(first, second);
         assert_eq!(notifications.dialog().expect("dialog").id, second);
         assert_eq!(notifications.dialog().expect("dialog").title, "Second");
@@ -391,7 +390,10 @@ mod tests {
             notifications.info(format!("toast {index}"));
         }
         assert_eq!(notifications.toasts().len(), 4);
-        assert_eq!(notifications.toasts().last().expect("last").message, "toast 9");
+        assert_eq!(
+            notifications.toasts().last().expect("last").message,
+            "toast 9"
+        );
     }
 
     #[test]
@@ -406,10 +408,18 @@ mod tests {
 
     #[test]
     fn terminal_intents_are_the_ones_that_close_without_follow_up() {
-        for intent in [DialogIntent::Dismiss, DialogIntent::Cancel, DialogIntent::DiscardChanges] {
+        for intent in [
+            DialogIntent::Dismiss,
+            DialogIntent::Cancel,
+            DialogIntent::DiscardChanges,
+        ] {
             assert!(intent.is_terminal(), "{intent:?}");
         }
-        for intent in [DialogIntent::Retry, DialogIntent::OpenSettings, DialogIntent::RelinkSamples] {
+        for intent in [
+            DialogIntent::Retry,
+            DialogIntent::OpenSettings,
+            DialogIntent::RelinkSamples,
+        ] {
             assert!(!intent.is_terminal(), "{intent:?}");
         }
     }

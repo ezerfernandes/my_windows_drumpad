@@ -55,12 +55,24 @@ impl WizardStep {
     /// One-line explanation.
     pub const fn description(self) -> &'static str {
         match self {
-            Self::Welcome => "Four quick choices, then the pads are live. You can change all of them later in Settings.",
-            Self::Keyboard => "The Finding 35-key one-hand keypad is the reference layout. A full keyboard uses the same 4x4 block.",
-            Self::Audio => "Pick the output that feeds your amp or the Nitro Max Aux In. Defaults work on most Windows machines.",
-            Self::Midi => "Select the Nitro Max port to play the pads from the kit. Skip it if you only use the keyboard today.",
-            Self::SampleFolder => "Where your kicks, snares, and loops live. Drag files onto pads at any time.",
-            Self::Done => "Press Finish. Pads trigger immediately; open Settings any time to revisit a step.",
+            Self::Welcome => {
+                "Four quick choices, then the pads are live. You can change all of them later in Settings."
+            }
+            Self::Keyboard => {
+                "The Finding 35-key one-hand keypad is the reference layout. A full keyboard uses the same 4x4 block."
+            }
+            Self::Audio => {
+                "Pick the output that feeds your amp or the Nitro Max Aux In. Defaults work on most Windows machines."
+            }
+            Self::Midi => {
+                "Select the Nitro Max port to play the pads from the kit. Skip it if you only use the keyboard today."
+            }
+            Self::SampleFolder => {
+                "Where your kicks, snares, and loops live. Drag files onto pads at any time."
+            }
+            Self::Done => {
+                "Press Finish. Pads trigger immediately; open Settings any time to revisit a step."
+            }
         }
     }
 
@@ -180,7 +192,11 @@ impl Wizard {
     }
 
     /// Pick a keyboard profile by id.
-    pub fn choose_profile(&mut self, preferences: &mut UiPreferences, id: super::keymap::ProfileId) -> bool {
+    pub fn choose_profile(
+        &mut self,
+        preferences: &mut UiPreferences,
+        id: super::keymap::ProfileId,
+    ) -> bool {
         if KeyboardProfile::builtin(id).is_some() {
             preferences.keyboard.profile = id;
             true
@@ -200,7 +216,11 @@ impl Wizard {
     }
 
     /// Set the sample folder.
-    pub fn choose_sample_folder(&mut self, preferences: &mut UiPreferences, folder: std::path::PathBuf) {
+    pub fn choose_sample_folder(
+        &mut self,
+        preferences: &mut UiPreferences,
+        folder: std::path::PathBuf,
+    ) {
         preferences.sample_folder = Some(folder);
     }
 
@@ -291,7 +311,10 @@ mod tests {
             let step = wizard.step();
             if step.skippable() {
                 wizard.skip(&mut preferences);
-                assert!(wizard.was_skipped(step), "{step:?} should be recorded as skipped");
+                assert!(
+                    wizard.was_skipped(step),
+                    "{step:?} should be recorded as skipped"
+                );
             } else {
                 wizard.next(&mut preferences);
             }
