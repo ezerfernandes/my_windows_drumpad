@@ -158,3 +158,12 @@ cargo test -p drumpad-audio --test hardware -- --ignored --nocapture --test-thre
 | `8cebe95` | **experiment:** log the latency autoresearch loop and summary |
 | `61a4867` | independent verification of iteration 1 at 10.6669 ms p99 (cleaner) |
 | `ce47ca8` | **experiment:** record the real-device exclusive negotiation (256/256, no fallback) |
+
+### Baseline provenance
+
+The verifier's committed baseline artifact is `iteration-0.json` at `896afa5`
+(p99 **34.1256**). The coder baseline row in the TSV was re-measured at `ed48b7f`
+(p99 **34.1253**). Those two commits differ only in documentation — no audio or app code changed
+between them — so both are valid baselines and the 0.0003 ms gap is `key_to_queue` run-to-run
+noise, not a code difference.
+
