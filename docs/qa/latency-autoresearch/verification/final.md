@@ -70,6 +70,9 @@ workaround, not a suppressed failure.
 | `61a4867` | independent verification of iteration 1 (cleaner) | verification |
 | `ce47ca8` | **experiment:** record the real-device exclusive negotiation | **keep** (evidence) |
 | `f7be850` | docs: exact commit chain | evidence |
+| `78e54e5`, `a502e76` | docs: reconcile the two baseline runs (34.1256 vs 34.1253) | evidence |
+| `5673e58` | final verification + truthful real-device warning (cleaner) | verification |
+| `aff102b` | protocol mode note (cleaner) | evidence |
 
 **Discarded experiments: none.** Iterations 2–4 (smallest accepted period, key
 path, callback hygiene/MMCSS) were verified as already satisfied and logged
