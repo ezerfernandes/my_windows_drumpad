@@ -106,3 +106,21 @@ Iterations 2–4 are 10.6669 / 10.6671 / 10.6669 ms: a 0.0002 ms spread on the s
 the only remaining term is a 0.0003 ms queue push. There is no code change left that this metric
 can rank. Continuing would produce commits the metric cannot justify, so the loop stops at a
 plateau rather than at the 20-iteration budget.
+
+## Real-device check of the assumption (not an iteration)
+
+The proxy trusts the capability table, so the negotiated values were confirmed directly with
+`cargo test -p drumpad-audio --test hardware exclusive_mode_falls_back_or_runs -- --ignored --nocapture --test-threads=1`:
+
+```text
+device_name: "Speakers (Realtek(R) Audio)"  sample_format: I16
+share_mode: Exclusive
+buffer_frames: 256  callback_period_frames: 256  stream_latency_ms: Some(5.3333)
+fell_back: false
+callbacks: 95  frames_rendered: 24320  last_interval_us: 5419
+```
+
+The exclusive request lands on 256/256 on the real endpoint, so the proxy's 10.667 ms is what
+the hardware actually negotiates, not a table guess. This probe takes the endpoint from other
+clients for its 0.5 s run, so it must not be run while someone is playing.
+

@@ -49,9 +49,31 @@ The proxy is **not** an analog loopback. It excludes:
 - the DAC, the 3.5 mm output, and the Nitro Max Aux In / headphone path.
 
 It also assumes the reference endpoint negotiates the same values the capability table records.
-A real-device run is required to confirm that, and it needs the human's app to release the
-endpoint. The analog loopback procedure in
-[`docs/qa/latency-protocol.md`](../latency-protocol.md) remains the release gate.
+That assumption was confirmed on the real device during this run (see below). The analog loopback
+procedure in [`docs/qa/latency-protocol.md`](../latency-protocol.md) remains the release gate.
+
+## Real-device confirmation
+
+`cargo test -p drumpad-audio --test hardware exclusive_mode_falls_back_or_runs -- --ignored --nocapture --test-threads=1`
+opened the real default endpoint and reported:
+
+```text
+device_name: "Speakers (Realtek(R) Audio)"
+sample_rate: 48000, channels: 2, sample_format: I16
+share_mode: Exclusive
+buffer_frames: 256, callback_period_frames: 256
+stream_latency_ms: Some(5.3333)
+fell_back: false, fallback_reason: None
+callbacks: 95, frames_rendered: 24320, xruns: 2, late_callbacks: 2 (start-up), last_interval_us: 5419
+```
+
+So the exclusive request really lands on 256 frames with a 5.333 ms driver-reported stream
+latency — the capability table was not optimistic, and the proxy's 10.667 ms is the value this
+endpoint actually negotiates. The callback interval (5419 µs) matches the 256-frame period.
+
+Caveat: opening an exclusive stream takes the endpoint away from other clients, so this probe
+briefly interrupted the human's running app. It is not a safe command while someone is playing.
+
 
 ## The change
 
