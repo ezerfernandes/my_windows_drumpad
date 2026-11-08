@@ -149,3 +149,6 @@ cargo test -p drumpad-audio --test hardware -- --ignored --nocapture --test-thre
 | `ed48b7f` | verifier harness + iteration-0 baseline evidence (cleaner) |
 | `293b86a` | **experiment:** default to WASAPI exclusive with shared fallback and visible mode |
 | `fae65da` | **experiment:** keep the mode control read-only, correct stale runtime docs (review fix-forward) |
+| `8cebe95` | **experiment:** log the latency autoresearch loop and summary |
+| `61a4867` | independent verification of iteration 1 at 10.6669 ms p99 (cleaner) |
+| `ce47ca8` | **experiment:** record the real-device exclusive negotiation (256/256, no fallback) |
