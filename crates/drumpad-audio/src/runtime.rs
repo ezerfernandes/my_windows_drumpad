@@ -55,9 +55,10 @@ pub struct MvpAudioRuntime {
 }
 
 impl MvpAudioRuntime {
-    /// Build the demo kit and open the default Windows render device in shared
-    /// mode. Returns an error if the demo kit cannot be decoded or the device
-    /// cannot open.
+    /// Build the demo kit and open the default Windows render device in
+    /// exclusive mode, falling back to shared when the endpoint is busy or
+    /// rejects the format. Returns an error if the demo kit cannot be decoded
+    /// or the device cannot open.
     pub fn start() -> Result<Self, AudioError> {
         Self::start_with_backend(
             Box::new(WindowsBackend),
@@ -71,7 +72,8 @@ impl MvpAudioRuntime {
     }
 
     /// Build the demo kit against a specific backend. `settings_path` is
-    /// optional; when absent the MVP uses 48 kHz shared mode defaults.
+    /// optional; when absent the MVP uses [`crate::AudioSettings::default`],
+    /// which requests 48 kHz exclusive mode with a shared fallback.
     ///
     /// This is public so deterministic tests can use [`crate::FakeBackend`].
     pub fn start_with_backend(
@@ -879,6 +881,9 @@ mod tests {
             "the MVP default must request the low-latency exclusive stream"
         );
         assert!(!format.fell_back);
+        // Fake-backend expectation only: its exclusive configuration accepts
+        // 64..=2048 frames. The reference Realtek endpoint clamps exclusive to
+        // its 256-frame minimum, which the capability table records.
         assert_eq!(format.callback_period_frames, MVP_BLOCK_FRAMES as u32);
     }
 

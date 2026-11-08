@@ -121,14 +121,16 @@ fn audio(ui: &mut Ui, theme: &Theme, state: &mut AppState) {
             ui.end_row();
 
             ui.label("Mode");
-            ui.checkbox(
-                &mut state.settings.draft_mut().audio.exclusive,
-                "WASAPI exclusive",
+            ui.add_enabled(
+                false,
+                egui::Checkbox::new(
+                    &mut state.settings.draft_mut().audio.exclusive,
+                    "WASAPI exclusive",
+                ),
             )
-            .on_hover_text(
-                "Exclusive mode gives the lowest latency. If the endpoint is busy or rejects the \
-                 format, the stream falls back to shared mode and the status bar shows which mode \
-                 is running.",
+            .on_disabled_hover_text(
+                "The mode is chosen automatically: exclusive for the lowest latency, shared when \
+                 the endpoint is busy or rejects the format. The status bar shows the mode in use.",
             );
             ui.end_row();
         });
