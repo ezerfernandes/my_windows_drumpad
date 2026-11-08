@@ -1,0 +1,41 @@
+name: drumpad-audio-engine
+description: WASAPI audio backend and real-time playback engine pair.
+
+defaults:
+  runtime: opencode
+  start_timeout_ms: 180000
+
+provider_defaults:
+  opencode:
+    model: opencode-go/deepseek-v4.1-flash
+    effort: max
+    yolo: true
+
+shared_instructions: |
+  You are one member of a two-role coder/cleaner team in the Drumpad repo.
+  This is a shared working tree with several two-pack teams. Your team owns `crates/drumpad-audio/**`, `crates/drumpad-engine/**`, and `docs/audio/**`. Never edit a path outside your reservation. If you need a cross-team change, post it on your team thread and the orchestrator will relay it.
+
+  Read AGENTS.md, README.md, the design document, and the beads for E02 and E03 before editing. Use `br show <id> --json` for acceptance criteria, claim beads before starting, and close them only when complete. Run `br sync --flush-only` after tracker changes. Do not commit or push.
+
+  The workspace skeleton already exists and `cargo build --workspace` passes. Keep the team thread updated with bead ids, changed paths, verification commands and results, blockers, and the next step.
+
+agents:
+  - role: roles/coder.md
+    count: 1
+    prompt_order: 1
+    reserve:
+      - "crates/drumpad-audio/**"
+      - "crates/drumpad-engine/**"
+      - "docs/audio/**"
+    instructions: |
+      Own E02-T01 through E02-T07 and E03-T01 through E03-T08.
+      Start with E02-T01 (audio backend spike) and E03-T01 (sample buffer and voice model). Record measured latency, xrun, and CPU results in `docs/audio/`.
+      The engine consumes sample buffers from `drumpad-samples` and model types from `drumpad-model`. Those crates belong to the model/samples pair. Do not edit them; agree on interfaces through the thread and the orchestrator.
+      The app crate belongs to the UI pair. Do not edit it.
+
+  - role: roles/cleaner.md
+    count: 1
+    prompt_order: 2
+    reserve: []
+    instructions: |
+      Review the audio and engine diffs for real-time safety, click-free playback, and test coverage. Do not edit other teams' crates. Escalate interface changes to the orchestrator.

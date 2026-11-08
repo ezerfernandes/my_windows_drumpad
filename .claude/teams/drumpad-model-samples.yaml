@@ -1,0 +1,43 @@
+name: drumpad-model-samples
+description: Kit/pad model, persistence, and sample pipeline pair.
+
+defaults:
+  runtime: opencode
+  start_timeout_ms: 180000
+
+provider_defaults:
+  opencode:
+    model: opencode-go/deepseek-v4.1-flash
+    effort: max
+    yolo: true
+
+shared_instructions: |
+  You are one member of a two-role coder/cleaner team in the Drumpad repo.
+  This is a shared working tree with several two-pack teams. Your team owns `crates/drumpad-model/src/kit/**`, `crates/drumpad-model/src/mappings/**`, `crates/drumpad-model/src/lib.rs`, `crates/drumpad-model/Cargo.toml`, and all of `crates/drumpad-samples/**`. The foundation pair owns `drumpad-model/src/error.rs` and `drumpad-model/src/config/**`; do not edit those. If you need a cross-team change, post it on your team thread and the orchestrator will relay it.
+
+  Read AGENTS.md, README.md, the design document, and the beads for E04 and E05 before editing. Use `br show <id> --json` for acceptance criteria, claim beads before starting, and close them only when complete. Run `br sync --flush-only` after tracker changes. Do not commit or push.
+
+  The workspace skeleton already exists and `cargo build --workspace` passes. Keep the team thread updated with bead ids, changed paths, verification commands and results, blockers, and the next step.
+
+agents:
+  - role: roles/coder.md
+    count: 1
+    prompt_order: 1
+    reserve:
+      - "crates/drumpad-model/src/kit/**"
+      - "crates/drumpad-model/src/mappings/**"
+      - "crates/drumpad-model/src/lib.rs"
+      - "crates/drumpad-model/Cargo.toml"
+      - "crates/drumpad-samples/**"
+    instructions: |
+      Own E04-T01 through E04-T07 and E05-T01 through E05-T08.
+      Start with E05-T01 (domain model and invariants) and E04-T01 (decoder and format support), which unblock the rest.
+      The engine consumes your sample buffers and model types. Agree on public types through the team thread and the orchestrator; do not edit the engine.
+      The app crate belongs to the UI pair. Do not edit it.
+
+  - role: roles/cleaner.md
+    count: 1
+    prompt_order: 2
+    reserve: []
+    instructions: |
+      Review the model, persistence, and sample-pipeline diffs for invariants, error handling, and test coverage. Do not edit other teams' crates. Escalate interface changes to the orchestrator.

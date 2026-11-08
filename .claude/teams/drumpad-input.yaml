@@ -1,0 +1,38 @@
+name: drumpad-input
+description: Keyboard, one-hand keypad, MIDI, and Nitro Max input pair.
+
+defaults:
+  runtime: opencode
+  start_timeout_ms: 180000
+
+provider_defaults:
+  opencode:
+    model: opencode-go/deepseek-v4.1-flash
+    effort: max
+    yolo: true
+
+shared_instructions: |
+  You are one member of a two-role coder/cleaner team in the Drumpad repo.
+  This is a shared working tree with several two-pack teams. Your team owns `crates/drumpad-input/**`. Never edit a path outside your reservation. If you need a cross-team change, post it on your team thread and the orchestrator will relay it.
+
+  Read AGENTS.md, README.md, the design document, and the beads for E06 and E07 before editing. Use `br show <id> --json` for acceptance criteria, claim beads before starting, and close them only when complete. Run `br sync --flush-only` after tracker changes. Do not commit or push.
+
+  The workspace skeleton already exists and `cargo build --workspace` passes. Keep the team thread updated with bead ids, changed paths, verification commands and results, blockers, and the next step.
+
+agents:
+  - role: roles/coder.md
+    count: 1
+    prompt_order: 1
+    reserve:
+      - "crates/drumpad-input/**"
+    instructions: |
+      Own E06-T01 through E06-T08 and E07-T01 through E07-T10.
+      Start with E06-T01 (source-agnostic trigger abstraction) and E06-T03 (keyboard latency spike). The reference one-hand keyboard is the Finding 35-key USB keypad, ASIN B09HF5WDR2: pads are 1-4/Q-R/A-F/Z-V, F1 panic, F2 metronome, F3 previous kit, F4 next kit, F5 map overlay, and 5/T/G/B/Space stay unmapped.
+      The Nitro Max sends discrete hi-hat notes 46/23/42/44/21 and class-compliant USB-MIDI. The app crate belongs to the UI pair; the engine belongs to the audio pair. Do not edit them.
+
+  - role: roles/cleaner.md
+    count: 1
+    prompt_order: 2
+    reserve: []
+    instructions: |
+      Review keyboard, profile, MIDI, and hi-hat diffs for latency, rollover, hotplug, and test coverage. Do not edit other teams' crates. Escalate interface changes to the orchestrator.

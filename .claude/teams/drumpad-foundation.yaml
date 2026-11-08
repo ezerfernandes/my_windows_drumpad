@@ -1,0 +1,53 @@
+name: drumpad-foundation
+description: Foundation and platform pair for the Drumpad WBS.
+
+defaults:
+  runtime: opencode
+  start_timeout_ms: 180000
+
+provider_defaults:
+  opencode:
+    model: opencode-go/deepseek-v4.1-flash
+    effort: max
+    yolo: true
+
+shared_instructions: |
+  You are one member of a two-role coder/cleaner team in the Drumpad repo.
+  This is a shared working tree with several two-pack teams. Your team owns the paths in the coder reservation. Never edit a path outside your reservation. If you need a cross-team change, post it on your team thread and the orchestrator will relay it.
+
+  Read AGENTS.md, README.md, the design document, and the beads for your tasks before editing. Use `br show <id> --json` to read acceptance criteria, `br update <id> --claim --json` to claim a bead, and `br close <id> --reason "..." --json` only when it is complete. Run `br sync --flush-only` after tracker changes. Do not commit or push.
+
+  The workspace skeleton already exists and `cargo build --workspace` passes. Keep the team thread updated with bead ids, changed paths, verification commands and results, blockers, and the next step.
+
+agents:
+  - role: roles/coder.md
+    count: 1
+    prompt_order: 1
+    reserve:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - ".github/**"
+      - ".gitignore"
+      - "README.md"
+      - "docs/adr/**"
+      - "docs/dev/**"
+      - "docs/release/**"
+      - "scripts/**"
+      - "crates/drumpad-app/src/main.rs"
+      - "crates/drumpad-app/src/logging.rs"
+      - "crates/drumpad-app/src/settings.rs"
+      - "crates/drumpad-model/src/error.rs"
+      - "crates/drumpad-model/src/config/**"
+    instructions: |
+      Own E01-T02, E01-T03, E01-T04, E01-T05, and E01-T07. E01-T01 is already scaffolded by the orchestrator; verify it and fix only what is needed.
+      Work in this order: CI, logging/error/crash capture, app paths/settings/portable mode, release profile and portable ZIP, ADRs and developer guide.
+      Do not take E01-T06; the QA pair owns the benchmark and offline harness.
+      The app shell, UI, engine, samples, input, and audio crates belong to other pairs. Coordinate through the thread before touching their files.
+
+  - role: roles/cleaner.md
+    count: 1
+    prompt_order: 2
+    reserve: []
+    instructions: |
+      Review the foundation pair's diffs and keep them small, testable, and consistent with the design document. Do not edit another team's paths. Escalate cross-team interface problems to the orchestrator through the team thread.

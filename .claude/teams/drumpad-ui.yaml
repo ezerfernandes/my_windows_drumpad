@@ -1,0 +1,42 @@
+name: drumpad-ui
+description: Native winit/egui shell, pad grid, inspector, and sample editor pair.
+
+defaults:
+  runtime: opencode
+  start_timeout_ms: 180000
+
+provider_defaults:
+  opencode:
+    model: opencode-go/deepseek-v4.1-flash
+    effort: max
+    yolo: true
+
+shared_instructions: |
+  You are one member of a two-role coder/cleaner team in the Drumpad repo.
+  This is a shared working tree with several two-pack teams. Your team owns `crates/drumpad-app/**` except `src/main.rs`, `src/logging.rs`, and `src/settings.rs`, which the foundation pair owns. Never edit a path outside your reservation. If you need a cross-team change, post it on your team thread and the orchestrator will relay it.
+
+  Read AGENTS.md, README.md, the design document, and the beads for E08 and E09 before editing. Use `br show <id> --json` for acceptance criteria, claim beads before starting, and close them only when complete. Run `br sync --flush-only` after tracker changes. Do not commit or push.
+
+  The workspace skeleton already exists and `cargo build --workspace` passes. Keep the team thread updated with bead ids, changed paths, verification commands and results, blockers, and the next step.
+
+agents:
+  - role: roles/coder.md
+    count: 1
+    prompt_order: 1
+    reserve:
+      - "crates/drumpad-app/Cargo.toml"
+      - "crates/drumpad-app/src/app/**"
+      - "crates/drumpad-app/src/ui/**"
+      - "crates/drumpad-app/src/state/**"
+    instructions: |
+      Own E08-T01 through E08-T11 and E09-T01 through E09-T06.
+      Start with E08-T01 (custom winit + egui app shell) and E08-T03 (pad grid). The foundation pair owns `main.rs`, `logging.rs`, and `settings.rs`; expose an `app::run()` entry point for them to call.
+      The Finding 35-key keyboard profile is the reference one-hand layout. The pad grid is 4x4, F1-F5 are transport actions, and 5/T/G/B/Space are unmapped.
+      The model, samples, engine, and input crates belong to other pairs. Do not edit them; agree on interfaces through the thread and the orchestrator.
+
+  - role: roles/cleaner.md
+    count: 1
+    prompt_order: 2
+    reserve: []
+    instructions: |
+      Review UI diffs for frame time, DPI, keyboard latency, visual clarity, and test coverage. Do not edit other teams' crates. Escalate interface changes to the orchestrator.
