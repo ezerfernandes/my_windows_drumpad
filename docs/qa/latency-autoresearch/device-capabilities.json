@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "device": "Realtek High Definition Audio (onboard)",
+  "sample_rate": 48000,
+  "source": "docs/audio/backend-spike.md (E02-T01), measured 2026-11-07 on ASUSTeK ROG Strix G533QS",
+  "notes": "Negotiated values only. A request that is not listed here was never measured on this endpoint, so latency_proxy fails closed instead of extrapolating.",
+  "modes": {
+    "shared": {
+      "accepted_request_frames": [64, 128, 256],
+      "callback_period_frames": 512,
+      "buffer_frames": 1126,
+      "note": "GetSharedModeEnginePeriod reports min = default = max = 512 frames; IAudioClient3 cannot go below it and the buffer depth is 1126 frames."
+    },
+    "exclusive": {
+      "accepted_request_frames": [64, 128, 256],
+      "callback_period_frames": 256,
+      "buffer_frames": 256,
+      "note": "The driver rejects float and clamps every requested period below 256 frames up to its 256-frame minimum; the exclusive buffer equals one period."
+    }
+  }
+}

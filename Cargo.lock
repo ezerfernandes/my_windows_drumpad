@@ -840,6 +840,7 @@ version = "0.1.0"
 dependencies = [
  "criterion",
  "drumpad-app",
+ "drumpad-audio",
  "drumpad-engine",
  "drumpad-input",
  "drumpad-model",

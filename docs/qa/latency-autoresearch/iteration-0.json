@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "mode": "shared",
+  "requested_frames": 128,
+  "callback_period_frames": 512,
+  "buffer_frames": 1126,
+  "sample_rate": 48000,
+  "hits": 1100,
+  "key_to_queue_p50_ms": 0.00009999999999999999,
+  "key_to_queue_p99_ms": 0.0006,
+  "midi_to_callback_p99_ms": 0.656,
+  "proxy_e2e_p50_ms": 34.125099999999996,
+  "proxy_e2e_p99_ms": 34.1256,
+  "device": "Realtek High Definition Audio (onboard)",
+  "capability_source": "docs/audio/backend-spike.md (E02-T01), measured 2026-11-07 on ASUSTeK ROG Strix G533QS",
+  "negotiation_note": "GetSharedModeEnginePeriod reports min = default = max = 512 frames; IAudioClient3 cannot go below it and the buffer depth is 1126 frames."
+}

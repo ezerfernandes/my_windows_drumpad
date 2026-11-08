@@ -6,6 +6,7 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+drumpad-audio = { path = "../drumpad-audio" }
 drumpad-model = { path = "../drumpad-model" }
 drumpad-samples = { path = "../drumpad-samples" }
 drumpad-engine = { path = "../drumpad-engine" }
@@ -32,6 +33,10 @@ path = "src/bin/latency_report.rs"
 [[bin]]
 name = "latency_probe"
 path = "src/bin/latency_probe.rs"
+
+[[bin]]
+name = "latency_proxy"
+path = "src/bin/latency_proxy.rs"
 
 [[bin]]
 name = "fixture_gen"
