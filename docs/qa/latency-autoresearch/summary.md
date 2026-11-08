@@ -79,6 +79,27 @@ endpoint actually negotiates. The callback interval (5419 µs) matches the 256-f
 Caveat: opening an exclusive stream takes the endpoint away from other clients, so this probe
 briefly interrupted the human's running app. It is not a safe command while someone is playing.
 
+## Relaunch verification (2026-11-08 16:10 local)
+
+After the human closed the old process and approved a relaunch, the release build
+(`target/release/drumpad-app.exe`, PID 11536) started and logged its own negotiated format:
+
+```text
+MVP audio runtime started running=true rate=48000
+format=Some(StreamFormat { device_name: "Speakers (Realtek(R) Audio)", sample_rate: 48000,
+  channels: 2, sample_format: I16, share_mode: Exclusive, buffer_frames: 256,
+  callback_period_frames: 256, stream_latency_ms: Some(5.3333), fell_back: false,
+  fallback_reason: None })
+audio stream started device=Speakers (Realtek(R) Audio)
+```
+
+The audible demo-kit guard (`mvp_runtime_starts_and_plays_the_demo_kit`) also ran on the real
+device immediately before the launch: `state: Running`, `xruns: 0`, `late_callbacks: 0`,
+`buffer_frames: 256`, `callback_period_frames: 256`, meter peak 0.104, `active_voices: 1`, and all
+16 demo pad names loaded. So the app still loads `Drumpad Demo` and triggers audible pads on the
+new mode.
+
+
 
 ## The change
 
