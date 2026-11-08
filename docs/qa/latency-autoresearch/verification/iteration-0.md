@@ -49,6 +49,16 @@ it is identical across every iteration so the comparison is fair.
 - DAC, analog output, cable, and the Nitro Max Aux In.
 - Per-endpoint differences other than the one capability table.
 
+**Fallback caveat.** The proxy reads the *request*. If the endpoint is busy or
+rejects integer exclusive formats, the app falls back to shared (34.1 ms) and
+the status bar reports `shared` plus the fallback reason. The proxy would still
+show 10.667 ms in that case, so the final hardware run must confirm the
+negotiated `share_mode: exclusive` before anyone claims the win.
+
+**Smallest useful gain.** 0.05 ms. `key_to_queue` p99 moves by a few
+ten-thousandths of a millisecond between runs, so anything smaller is noise and
+cannot justify keeping a code change.
+
 A proxy win is a candidate, not acceptance. Final acceptance requires the
 hardware run in `crates/drumpad-audio/tests/hardware.rs` inside one approved
 stop/relaunch window, plus the full guard.
