@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "mode": "exclusive",
+  "requested_frames": 128,
+  "callback_period_frames": 256,
+  "buffer_frames": 256,
+  "sample_rate": 48000,
+  "hits": 1100,
+  "key_to_queue_p50_ms": 0.0,
+  "key_to_queue_p99_ms": 0.00019999999999999998,
+  "midi_to_callback_p99_ms": 0.2107,
+  "proxy_e2e_p50_ms": 10.666666666666666,
+  "proxy_e2e_p99_ms": 10.666866666666667,
+  "device": "Realtek High Definition Audio (onboard)",
+  "capability_source": "docs/audio/backend-spike.md (E02-T01), measured 2026-11-07 on ASUSTeK ROG Strix G533QS",
+  "negotiation_note": "The driver rejects float and clamps every requested period below 256 frames up to its 256-frame minimum; the exclusive buffer equals one period."
+}
