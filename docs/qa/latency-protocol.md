@@ -16,6 +16,13 @@ blocks, and the reference chain below. A run at another format must state its
 format in the baseline table; the block-relative target is recomputed from the
 actual block duration.
 
+> **Mode note (2026-11-08):** the app now defaults to WASAPI exclusive mode with
+> a shared fallback; see `docs/audio/backend-spike.md` and
+> `docs/qa/latency-autoresearch/summary.md`. The shared-mode assumption above
+> still defines the reference row, but every run must record the negotiated
+> mode, buffer and callback period next to its format, because the
+> block-relative target depends on the period the endpoint actually grants.
+
 | Metric | Definition | Target | Pass statistic | Minimum retained hits | Warm-up discarded |
 | --- | --- | --- | --- | ---: | ---: |
 | `key_to_queue` | Key/keypad event observed by the app until the trigger is visible on the engine queue | < 2.0 ms | p99 ≤ 2.0 ms **and** max ≤ 4.0 ms | 1000 | 100 |
