@@ -15,6 +15,11 @@ Loop log: [`loop-261108-1034.tsv`](loop-261108-1034.tsv). Experiment detail:
 **p99 34.1253 ms → 10.6670 ms, −23.4583 ms (−68.7 %).** Repeatability over four runs of the
 same commit: 10.6669 / 10.6670 / 10.6671 / 10.6669 ms (spread 0.0002 ms).
 
+The independent verifier measured the same change on a pristine `896afa5` worktree:
+**34.1256 → 10.6669 ms (−68.75 %)**. The 0.0003 ms difference from the coder rows is
+`key_to_queue` run-to-run noise, not a code difference; the audio component is identical in both
+(period 512 / buffer 1126 → 256 / 256).
+
 `key_to_queue` p99 was 0.0003 ms before and after: the whole win is the WASAPI sharing mode.
 The app's keyboard path was already sub-microsecond, so no code change on that path can move
 the audible result.

@@ -3,6 +3,8 @@
 # verify: cargo run -q -p drumpad-tools --bin latency_proxy -- --json docs/qa/latency-autoresearch/iteration-<N>.json
 # guard: cargo fmt --all --check && cargo test -p drumpad-app -p drumpad-audio -p drumpad-engine -p drumpad-input -p drumpad-tools && cargo clippy -p drumpad-app -p drumpad-audio -p drumpad-engine -p drumpad-input -p drumpad-tools --all-targets -- -D warnings
 # build-note: CARGO_TARGET_DIR=C:\Users\ezers\AppData\Local\Temp\opencode\drumpad-ar-target while the human's app (PID 58392) locks target\debug\drumpad-app.exe
+# verifier-of-record (CreamPlateau, pristine 896afa5 worktree): iteration 0 = 34.1256, iteration 1 = 10.6669.
+# The coder rows below differ by at most 0.0003 ms, which is key_to_queue run-to-run noise, not a code difference.
 iteration	timestamp	commit	metric	delta	guard	guard-metric	status	description
 0	2026-11-08T10:39:00Z	ed48b7f	34.1253	0.0000	pass	-	baseline	shared mode: requested 128 frames -> period 512, buffer 1126; key_to_queue p99 0.0003 ms; p50 34.1250
 1	2026-11-08T10:47:00Z	293b86a	10.6670	-23.4583	pass	-	keep	exclusive default with shared fallback: period 256, buffer 256; p50 10.6667; -68.7%
@@ -13,3 +15,5 @@ iteration	timestamp	commit	metric	delta	guard	guard-metric	status	description
 # plateau: iterations 2-4 are 10.6669/10.6671/10.6669 ms, spread 0.0002 ms. At 48 kHz the driver floor is
 # 256 frames exclusive (5.333 ms period + 5.333 ms buffer), so the software path cannot improve further on this
 # endpoint. The loop stops here instead of churning code for a metric that cannot see it.
+# real-device check (ce47ca8): the hardware test opened the default endpoint exclusive at 256/256,
+# stream_latency_ms 5.3333, fell_back false, 95 callbacks at a 5.419 ms interval. The capability table is real.
