@@ -2,7 +2,8 @@
 
 `drumpad_audio::MvpAudioRuntime` is the app-facing vertical-slice facade. It
 decodes the embedded demo kit, resamples it to 48 kHz, builds the playback
-engine, and opens the default Windows render device in shared mode.
+engine, and opens the default Windows render device in exclusive mode, falling
+back to shared when the endpoint is busy or rejects the format.
 
 ## Start
 
@@ -95,10 +96,12 @@ match key {
 
 ## Scope and limits
 
-- **48 kHz shared mode** is used for the MVP so it never takes exclusive
-  control of the endpoint. Exclusive mode remains available through
-  `AudioSettings`/`StreamConfig` for the latency work (see
-  [latency-guide.md](latency-guide.md)).
+- **48 kHz exclusive mode** is the latency default: on the reference endpoint it
+  negotiates a 256-frame buffer and period (~5.3 ms software path) against a
+  1126-frame buffer and 512-frame period in shared mode (~23.5 ms). Exclusive
+  mode locks the endpoint, so `AudioSettings::fallback_to_shared` stays on and
+  the status bar reports the mode that actually opened. See
+  [latency-guide.md](latency-guide.md).
 - The engine is built at 48 kHz. If a device negotiates a different rate, the
   runtime stops and returns an explicit error rather than playing at the wrong
   pitch.

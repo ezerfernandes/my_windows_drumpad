@@ -34,8 +34,9 @@ misses the target on the reference machine), then **shared low-latency**, then
 **shared default**. The negotiated result is shown in diagnostics; a fallback
 is never silent.
 
-Exclusive mode is only offered when it is implemented and the device supports
-it. ASIO remains a post-v1 option (see E12).
+Exclusive mode is offered whenever the device supports it; the stream falls back
+to shared low-latency and then shared default when it does not. ASIO remains a
+post-v1 option (see E12).
 
 ## How to read the diagnostics view
 

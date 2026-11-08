@@ -122,6 +122,8 @@ pub struct AudioStatus {
     pub sample_rate: u32,
     /// Negotiated buffer size in frames.
     pub buffer_frames: u32,
+    /// Negotiated sharing mode, once a stream is open.
+    pub share_mode: Option<drumpad_audio::ShareMode>,
     /// Whether the stream is rendering.
     pub running: bool,
     /// Active voices from the engine meters.
@@ -136,6 +138,7 @@ impl Default for AudioStatus {
             device: "Audio not started".to_owned(),
             sample_rate: 48_000,
             buffer_frames: 128,
+            share_mode: None,
             running: false,
             voices: 0,
             detail: None,
@@ -147,9 +150,12 @@ impl AudioStatus {
     /// One-line status-bar summary.
     pub fn summary(&self) -> String {
         if self.running {
+            let mode = self
+                .share_mode
+                .map_or_else(|| "unknown mode".to_owned(), |mode| mode.to_string());
             let mut text = format!(
-                "{} | {} Hz | {} frames | {} voice(s)",
-                self.device, self.sample_rate, self.buffer_frames, self.voices
+                "{} | {} | {} Hz | {} frames | {} voice(s)",
+                self.device, mode, self.sample_rate, self.buffer_frames, self.voices
             );
             if let Some(detail) = &self.detail {
                 text.push_str(" | ");
@@ -544,6 +550,34 @@ mod tests {
         assert_eq!(state.status().kit, "Default Kit");
         assert_eq!(state.status().load, "Ready");
         assert!(!state.status().dirty);
+    }
+
+    #[test]
+    fn the_status_bar_reports_the_negotiated_sharing_mode() {
+        let mut status = AudioStatus {
+            running: true,
+            device: "Speakers".to_owned(),
+            share_mode: Some(drumpad_audio::ShareMode::Exclusive),
+            ..AudioStatus::default()
+        };
+        assert!(
+            status.summary().contains("exclusive"),
+            "{}",
+            status.summary()
+        );
+
+        status.share_mode = Some(drumpad_audio::ShareMode::Shared);
+        status.detail = Some("exclusive mode unavailable".to_owned());
+        let summary = status.summary();
+        assert!(summary.contains("shared"), "{summary}");
+        assert!(summary.contains("exclusive mode unavailable"), "{summary}");
+
+        // A stopped stream never claims a mode it did not negotiate.
+        status.running = false;
+        assert_eq!(
+            status.summary(),
+            "Audio unavailable: exclusive mode unavailable"
+        );
     }
 
     #[test]

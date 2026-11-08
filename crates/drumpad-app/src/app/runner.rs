@@ -1267,6 +1267,7 @@ fn status_for(runtime: &MvpAudioRuntime) -> AudioStatus {
         status.device = format.device_name.clone();
         status.sample_rate = format.sample_rate;
         status.buffer_frames = format.buffer_frames;
+        status.share_mode = Some(format.share_mode);
         status.detail = format.fallback_reason.clone();
     } else if let drumpad_audio::AudioSystemState::Failed { reason } = runtime.state() {
         status.detail = Some(reason.clone());

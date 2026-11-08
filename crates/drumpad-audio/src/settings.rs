@@ -44,7 +44,14 @@ impl Default for AudioSettings {
             device_name: None,
             sample_rate: 48_000,
             buffer_frames: 128,
-            share_mode: ShareMode::Shared,
+            // Exclusive mode is the latency default. The backend spike measured
+            // 1126-frame buffer / 512-frame period (~23.5 ms software path) in
+            // shared mode against 256-frame buffer and period (~5.3 ms) in
+            // exclusive mode on the reference endpoint. Exclusive mode blocks
+            // other applications, so `fallback_to_shared` stays on: if the
+            // endpoint is busy or rejects integer formats the stream reopens in
+            // shared mode and the status bar reports the fallback.
+            share_mode: ShareMode::Exclusive,
             low_latency_shared: true,
             fallback_to_shared: true,
             exclusive_bits: 16,
@@ -272,6 +279,19 @@ mod tests {
         assert!(settings.validate().is_empty());
         assert_eq!(settings.sample_rate, 48_000);
         assert_eq!(settings.buffer_frames, 128);
+    }
+
+    #[test]
+    fn the_default_request_asks_for_exclusive_mode_with_a_shared_fallback() {
+        let settings = AudioSettings::default();
+        let request = settings.stream_config();
+        assert_eq!(request.share_mode, ShareMode::Exclusive);
+        assert!(
+            request.fallback_to_shared,
+            "exclusive mode must never make the app silent when the endpoint is busy"
+        );
+        assert_eq!(request.sample_rate, 48_000);
+        assert_eq!(request.buffer_frames, 128);
     }
 
     #[test]

@@ -114,8 +114,8 @@ fn default_audio_preferences_are_the_reference_format() {
     assert_eq!(preferences.audio.sample_rate, 48_000);
     assert_eq!(preferences.audio.buffer_frames, 128);
     assert!(
-        !preferences.audio.exclusive,
-        "v1 starts in WASAPI shared mode"
+        preferences.audio.exclusive,
+        "the low-latency default is WASAPI exclusive"
     );
 }
 
@@ -127,12 +127,14 @@ fn audio_status_summary_shows_the_device_rate_and_buffer() {
         device: "Speakers (Realtek High Definition Audio)".to_owned(),
         sample_rate: 48_000,
         buffer_frames: 128,
+        share_mode: Some(drumpad_audio::ShareMode::Exclusive),
         running: true,
         voices: 3,
         detail: None,
     };
     let summary = running.summary();
     assert!(summary.contains("Speakers (Realtek"), "{summary}");
+    assert!(summary.contains("exclusive"), "{summary}");
     assert!(summary.contains("48000 Hz"), "{summary}");
     assert!(summary.contains("128 frames"), "{summary}");
     assert!(summary.contains("3 voice"), "{summary}");

@@ -75,7 +75,10 @@ impl Default for AudioPrefs {
             device: None,
             sample_rate: 48_000,
             buffer_frames: 128,
-            exclusive: false,
+            // Exclusive mode is the low-latency default (see
+            // `drumpad_audio::AudioSettings::default`); the backend falls back
+            // to shared when the endpoint is busy or rejects the format.
+            exclusive: true,
         }
     }
 }
@@ -267,8 +270,6 @@ pub enum SettingsError {
         /// Requested scale.
         value: f32,
     },
-    /// Exclusive mode is not implemented in this build.
-    ExclusiveNotImplemented,
     /// A device name is present but blank.
     BlankDevice,
 }
@@ -293,9 +294,6 @@ impl fmt::Display for SettingsError {
             }
             Self::UiScale { value } => {
                 write!(formatter, "UI scale {value} is outside 0.75..=2.0")
-            }
-            Self::ExclusiveNotImplemented => {
-                formatter.write_str("exclusive mode is not implemented in this build")
             }
             Self::BlankDevice => formatter.write_str("a device name cannot be blank"),
         }
@@ -375,12 +373,6 @@ impl UiPreferences {
             return Err(SettingsError::UiScale {
                 value: self.appearance.scale,
             });
-        }
-        // The audio backend lands in E02. Until WASAPI exclusive is implemented,
-        // offering it would let the user select a mode that cannot open a
-        // stream. Move this gate into `drumpad-audio` when it ships.
-        if self.audio.exclusive {
-            return Err(SettingsError::ExclusiveNotImplemented);
         }
         Ok(())
     }
@@ -691,18 +683,17 @@ mod tests {
         assert_eq!(GridSize::FourByFour.pad_count(), 16);
     }
     #[test]
-    fn exclusive_mode_is_blocked_until_the_backend_supports_it() {
-        let mut preferences = UiPreferences::default();
-        preferences.audio.exclusive = true;
-        assert_eq!(
-            preferences.validate(),
-            Err(SettingsError::ExclusiveNotImplemented)
-        );
+    fn exclusive_mode_is_the_default_and_is_accepted() {
+        let preferences = UiPreferences::default();
         assert!(
-            SettingsError::ExclusiveNotImplemented
-                .to_string()
-                .contains("not implemented")
+            preferences.audio.exclusive,
+            "the low-latency default is WASAPI exclusive"
         );
+        assert_eq!(preferences.validate(), Ok(()));
+
+        let mut shared = preferences.clone();
+        shared.audio.exclusive = false;
+        assert_eq!(shared.validate(), Ok(()));
     }
 
     #[test]
@@ -721,7 +712,7 @@ mod tests {
         changed.audio.device = Some("USB DAC".to_owned());
         changed.audio.sample_rate = 96_000;
         changed.audio.buffer_frames = 256;
-        changed.audio.exclusive = true;
+        changed.audio.exclusive = false;
         let reasons = changed.restart_reasons(&base);
         assert_eq!(reasons.len(), 4);
         for reason in reasons {

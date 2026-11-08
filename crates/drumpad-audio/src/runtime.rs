@@ -870,6 +870,61 @@ mod tests {
     }
 
     #[test]
+    fn runtime_prefers_exclusive_mode_when_the_device_offers_it() {
+        let runtime = start_fake_runtime();
+        let format = runtime.format().expect("negotiated format");
+        assert_eq!(
+            format.share_mode,
+            crate::ShareMode::Exclusive,
+            "the MVP default must request the low-latency exclusive stream"
+        );
+        assert!(!format.fell_back);
+        assert_eq!(format.callback_period_frames, MVP_BLOCK_FRAMES as u32);
+    }
+
+    #[test]
+    fn runtime_falls_back_to_shared_when_exclusive_is_unavailable() {
+        // A device that only exposes a shared float configuration, like a busy
+        // endpoint or a driver that rejects integer exclusive formats.
+        let backend = FakeBackend::standard().with_configs(vec![crate::backend::SupportedConfig {
+            sample_rate: 48_000,
+            channels: 2,
+            sample_format: crate::SampleFormat::F32,
+            share_mode: crate::ShareMode::Shared,
+            min_buffer_frames: 64,
+            max_buffer_frames: 2048,
+        }]);
+        let mut runtime = MvpAudioRuntime::start_with_backend(
+            Box::new(backend),
+            None,
+            EngineConfig {
+                sample_rate: MVP_SAMPLE_RATE,
+                voice_limit: 64,
+                ..EngineConfig::default()
+            },
+        )
+        .expect("runtime must still start on the shared fallback");
+        let format = runtime.format().expect("negotiated format");
+        assert_eq!(format.share_mode, crate::ShareMode::Shared);
+        assert!(format.fell_back);
+        assert!(
+            format.fallback_reason.is_some(),
+            "the fallback reason must be visible to the UI"
+        );
+
+        runtime.trigger(0, 100);
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while runtime.active_voices() == 0 && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        assert!(
+            runtime.active_voices() > 0,
+            "the shared fallback must still play pads"
+        );
+        runtime.stop();
+    }
+
+    #[test]
     fn out_of_range_pad_and_velocity_are_clamped() {
         let backend = FakeBackend::standard().with_period(Duration::from_millis(2));
         let runtime = MvpAudioRuntime::start_with_backend(
