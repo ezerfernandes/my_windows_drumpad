@@ -143,7 +143,7 @@ cargo fmt --all --check
 cargo test -p drumpad-app -p drumpad-audio -p drumpad-engine -p drumpad-input -p drumpad-tools
 cargo clippy -p drumpad-app -p drumpad-audio -p drumpad-engine -p drumpad-input -p drumpad-tools --all-targets -- -D warnings
 
-# Real device (requires the app to be closed)
+# Real device (needs the human's explicit approval: an exclusive probe preempts other clients)
 cargo test -p drumpad-audio --test hardware -- --ignored --nocapture --test-threads=1
 ```
 
@@ -151,7 +151,8 @@ cargo test -p drumpad-audio --test hardware -- --ignored --nocapture --test-thre
 
 | commit | what |
 |---|---|
-| `ed48b7f` | verifier harness + iteration-0 baseline evidence (cleaner) |
+| `7dd4079` | verifier harness + iteration-0 baseline evidence (cleaner) |
+| `ed48b7f` | smallest-useful-gain and fallback caveat (cleaner) |
 | `293b86a` | **experiment:** default to WASAPI exclusive with shared fallback and visible mode |
 | `fae65da` | **experiment:** keep the mode control read-only, correct stale runtime docs (review fix-forward) |
 | `8cebe95` | **experiment:** log the latency autoresearch loop and summary |

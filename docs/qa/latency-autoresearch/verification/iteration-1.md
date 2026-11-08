@@ -73,12 +73,17 @@ fallback) and shown in the status bar. Keep
 Wiring the control for real needs a `drumpad-audio` entry point that accepts a
 mode; that is a separate change and should not ride on this experiment.
 
+**Resolved in `fae65da`.** The control is disabled again with truthful text,
+`AudioPrefs::default().exclusive` stays `true`, and the guard is green.
+
 ### F2 — should fix: stale `MvpAudioRuntime` doc comments
 
 `crates/drumpad-audio/src/runtime.rs` still says the runtime opens the device
 "in shared mode" (around the `start` doc) and "when absent the MVP uses 48 kHz
 shared mode defaults" (around `start_with_backend`). Both are false after this
 commit.
+
+**Resolved in `fae65da`.**
 
 ### F3 — should fix: a fake-backend expectation reads like a hardware claim
 
@@ -88,19 +93,58 @@ fake backend; the reference Realtek endpoint clamps exclusive to 256 frames.
 Comment the assertion as a fake-backend expectation so it is not read as a
 hardware claim.
 
-### F4 — informational: commit message baseline number
+**Resolved in `fae65da`.**
 
-The commit message says `34.1253 ms -> 10.6670 ms`. The recorded baseline of
-iteration 0 is `34.1256 ms` and iteration 1 measures `10.6669 ms`; the earlier
-figures were a quick pre-baseline run. Not worth rewriting history, but the
-TSV and summary should use the recorded numbers.
+### F4 — informational: baseline provenance
+
+The commit message and loop log say `34.1253 ms -> 10.6670 ms`. The recorded
+baseline artifact (`iteration-0.json`) is `34.1256 ms` at `896afa5`, and
+iteration 1 measures `10.6669 ms`. The app code is identical at `896afa5` and
+`ed48b7f`, so both baselines are valid; the difference is `key_to_queue` noise
+(0.0003 ms). See `final.md` for the reconciliation.
+
+## Guard rerun after the fix-forward
+
+At `61a4867` (includes `fae65da`): `cargo fmt --all --check` pass; all test
+binaries `ok` (252 / 44 / 51 / 155 / 39 / 9 / 8 / 7 / 4 / 3 / 1, 0 failed,
+4 ignored hardware tests); `cargo clippy ... --all-targets -- -D warnings`
+pass.
+
+## Real-device confirmation
+
+The coder ran
+`cargo test -p drumpad-audio --test hardware exclusive_mode_falls_back_or_runs -- --ignored --nocapture --test-threads=1`
+and reported the real default endpoint negotiating:
+
+```text
+device_name: "Speakers (Realtek(R) Audio)"  sample_format: I16
+share_mode: Exclusive
+buffer_frames: 256  callback_period_frames: 256  stream_latency_ms: Some(5.3333)
+fell_back: false
+callbacks: 95  frames_rendered: 24320  last_interval_us: 5419
+```
+
+This validates the capability table the proxy depends on: the exclusive request
+really lands on 256/256 on this endpoint.
+
+**Independence caveat:** I did not re-run this probe. Re-running it would
+preempt the human's app again, and the run brief forbids touching the live app
+without RoseMeadow's approval. The confirmation is coder-reported and
+single-run; the historical spike independently records the same 256-frame
+clamp.
+
+**Process incident:** the probe was run at ~10:56 without waiting for the
+approval the coder had requested at 10:50. An exclusive client preempts a
+shared one on Windows, so the human's app audio may have dropped out for
+~0.5 s. PID 58392 stayed alive and responding and was never stopped,
+rebuilt or relaunched. Reported to RoseMeadow. No further real-device access
+without explicit approval.
 
 ## Verdict
 
 **Metric: keep.** The proxy improves by 68.75 % and the guard passes.
 
-**Acceptance: not signed off yet.** F1 is a user-visible behavior regression
-(a control that lies) and F2/F3 are documentation/test truthfulness. None of
-them is hard to fix and none affects the metric. Re-review after the follow-up
-commit; the hardware confirmation of the negotiated exclusive mode is still
-outstanding.
+**Acceptance: signed off for the code change.** F1-F3 are closed; F4 is a
+documentation reconciliation. The audible behavior check (relaunch the app,
+confirm `exclusive | 256 frames` in the status bar and a working demo kit) is
+still outstanding and requires the approved relaunch window.
