@@ -534,4 +534,192 @@ mod tests {
             "stable order must be preserved"
         );
     }
+
+    #[test]
+    fn load_reads_a_file_and_reports_io_errors() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("basic.seq");
+        std::fs::write(&path, SAMPLE).expect("write");
+        let sequence = Sequence::load(&path).expect("load");
+        assert_eq!(sequence.len(), 5);
+
+        let missing = dir.path().join("missing.seq");
+        let error = Sequence::load(&missing).expect_err("missing");
+        assert!(matches!(error, SequenceError::Io { .. }), "{error}");
+        assert!(error.to_string().contains("cannot read"), "{error}");
+        assert!(
+            error.source().is_some(),
+            "IO errors must expose their source"
+        );
+    }
+
+    #[test]
+    fn from_events_validates_and_reports_event_positions() {
+        let first = SequenceEvent {
+            at_frame: 0,
+            action: Action::NoteOn {
+                pad: 0,
+                velocity: 100,
+            },
+        };
+        let second = SequenceEvent {
+            at_frame: 480,
+            action: Action::NoteOff { pad: 0 },
+        };
+        let sequence = Sequence::from_events(vec![first, second]).expect("valid");
+        assert_eq!(sequence.len(), 2);
+        assert_eq!(sequence.last_frame(), 480);
+
+        let error = Sequence::from_events(vec![second, first]).expect_err("unsorted");
+        assert!(
+            matches!(error, SequenceError::Unsorted { line: 2 }),
+            "{error}"
+        );
+
+        let error = Sequence::from_events(vec![SequenceEvent {
+            at_frame: 0,
+            action: Action::NoteOn {
+                pad: 16,
+                velocity: 100,
+            },
+        }])
+        .expect_err("bad pad");
+        assert!(
+            matches!(error, SequenceError::PadOutOfRange { line: 1, pad: 16 }),
+            "{error}"
+        );
+
+        let error = Sequence::from_events(vec![SequenceEvent {
+            at_frame: 0,
+            action: Action::NoteOn {
+                pad: 0,
+                velocity: 0,
+            },
+        }])
+        .expect_err("bad velocity");
+        assert!(
+            matches!(
+                error,
+                SequenceError::VelocityOutOfRange {
+                    line: 1,
+                    velocity: 0
+                }
+            ),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn to_text_covers_every_action_and_round_trips() {
+        let text = "\
+0 note_on 0 100
+120 note_off 0
+240 all_off
+360 panic
+";
+        let sequence = Sequence::parse(text).expect("parse");
+        let rendered = sequence.to_text();
+        assert!(rendered.contains("0 note_on 0 100"));
+        assert!(rendered.contains("120 note_off 0"));
+        assert!(rendered.contains("240 all_off"));
+        assert!(rendered.contains("360 panic"));
+        let reparsed = Sequence::parse(&rendered).expect("reparse");
+        assert_eq!(sequence.events(), reparsed.events());
+    }
+
+    #[test]
+    fn parse_accepts_the_documented_aliases() {
+        let sequence =
+            Sequence::parse("0 trigger 0 100\n120 release 0\n240 all_notes_off\n360 panic\n")
+                .expect("parse");
+        assert_eq!(
+            sequence.events()[0].action,
+            Action::NoteOn {
+                pad: 0,
+                velocity: 100
+            }
+        );
+        assert_eq!(sequence.events()[1].action, Action::NoteOff { pad: 0 });
+        assert_eq!(sequence.events()[2].action, Action::AllNotesOff);
+        assert_eq!(sequence.events()[3].action, Action::Panic);
+    }
+
+    #[test]
+    fn malformed_columns_are_reported_with_reasons() {
+        let cases = [
+            ("", ""),
+            ("0", "missing action"),
+            ("0 note_on", "missing pad"),
+            ("0 note_on 0", "missing velocity"),
+            ("0 note_on x 100", "pad is not an integer"),
+            ("0 note_on 0 x", "velocity is not an integer"),
+            ("0 unknown 0 100", "unknown action"),
+            ("0 panic extra", "unexpected trailing token"),
+            ("x note_on 0 100", "frame is not an integer"),
+        ];
+        for (line, expected) in cases {
+            if line.is_empty() {
+                continue;
+            }
+            let error = Sequence::parse(line).expect_err(line);
+            assert!(
+                error.to_string().contains(expected),
+                "{line:?} -> {error}; expected {expected:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn error_display_covers_every_variant() {
+        let error = SequenceError::InvalidLine {
+            line: 1,
+            kind: LineError::TrailingToken("x".to_owned()),
+            text: "0 panic x".to_owned(),
+        };
+        assert!(error.to_string().contains("line 1"), "{error}");
+        assert!(error.to_string().contains("trailing"), "{error}");
+
+        for error in [
+            SequenceError::Unsorted { line: 2 },
+            SequenceError::PadOutOfRange { line: 3, pad: 99 },
+            SequenceError::VelocityOutOfRange {
+                line: 4,
+                velocity: 0,
+            },
+        ] {
+            let rendered = error.to_string();
+            assert!(rendered.contains("line"), "{rendered}");
+        }
+        assert!(SequenceError::Unsorted { line: 2 }.source().is_none());
+    }
+
+    #[test]
+    fn accessors_report_empty_and_non_empty_state() {
+        let empty = Sequence::parse("# only a comment\n").expect("parse");
+        assert!(empty.is_empty());
+        assert_eq!(empty.len(), 0);
+        assert_eq!(empty.last_frame(), 0);
+        assert_eq!(empty.last_scheduled_frame(128), 0);
+        let mut cursor = 0;
+        assert!(empty.due(&mut cursor, 0).next().is_none());
+
+        let sequence = Sequence::parse(SAMPLE).expect("parse");
+        assert!(!sequence.is_empty());
+        assert_eq!(sequence.len(), 5);
+    }
+
+    #[test]
+    fn action_pad_reports_targets() {
+        assert_eq!(
+            Action::NoteOn {
+                pad: 3,
+                velocity: 1
+            }
+            .pad(),
+            Some(3)
+        );
+        assert_eq!(Action::NoteOff { pad: 4 }.pad(), Some(4));
+        assert_eq!(Action::AllNotesOff.pad(), None);
+        assert_eq!(Action::Panic.pad(), None);
+    }
 }

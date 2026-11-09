@@ -603,4 +603,173 @@ mod tests {
             assert_eq!(entry.sha256.len(), 64);
         }
     }
+
+    #[test]
+    fn unknown_fixtures_are_rejected_by_every_lookup() {
+        assert!(fixture_spec("nope").is_none());
+        assert!(synthesize("nope", FIXTURE_SAMPLE_RATE).is_none());
+        assert!(buffer("nope").is_none());
+        assert!(FixtureBank::single("nope").is_none());
+        let error = generate_all(tempfile::tempdir().expect("tempdir").path())
+            .expect("known fixtures still generate");
+        assert_eq!(error.fixtures.len(), FIXTURE_NAMES.len());
+    }
+
+    #[test]
+    fn single_fixture_bank_uses_the_fixture_playback_mode() {
+        let one_shot = FixtureBank::single("one_shot").expect("one_shot");
+        assert_eq!(one_shot.len(), 1);
+        assert!(one_shot.pads.iter().all(|pad| pad.slot == 0));
+        assert!(
+            one_shot
+                .pads
+                .iter()
+                .all(|pad| pad.playback.mode == PlayMode::OneShot)
+        );
+
+        let looped = FixtureBank::single("loop").expect("loop");
+        assert_eq!(looped.pads[0].playback.mode, PlayMode::Loop);
+        assert_eq!(
+            looped.pads[0].playback.loop_points,
+            LoopPoints::full(FIXTURES[3].frames)
+        );
+    }
+
+    #[test]
+    fn synthesize_clamps_a_zero_sample_rate() {
+        let data = synthesize("one_shot", 0).expect("fixture");
+        assert_eq!(data.len(), FIXTURES[4].frames);
+        assert!(data.iter().all(|sample| sample.is_finite()));
+    }
+
+    #[test]
+    fn load_wav_reports_missing_files_and_bad_shapes() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let missing = dir.path().join("missing.wav");
+        let error = load_wav(&missing).expect_err("missing file");
+        assert!(matches!(error, FixtureError::Wav { .. }), "{error}");
+
+        // Three channels are outside the engine's mono/stereo contract.
+        let wide = dir.path().join("wide.wav");
+        let spec = hound::WavSpec {
+            channels: 3,
+            sample_rate: 48_000,
+            bits_per_sample: 32,
+            sample_format: hound::SampleFormat::Float,
+        };
+        let mut writer = hound::WavWriter::create(&wide, spec).expect("writer");
+        for _ in 0..3 {
+            writer.write_sample(0.0f32).expect("sample");
+        }
+        writer.finalize().expect("finalize");
+        let error = load_wav(&wide).expect_err("three channels");
+        assert!(matches!(error, FixtureError::Shape(_)), "{error}");
+        assert!(error.to_string().contains("3 channels"), "{error}");
+
+        // A WAV with no frames cannot become a SampleBuffer.
+        let empty = dir.path().join("empty.wav");
+        let spec = hound::WavSpec {
+            channels: 1,
+            sample_rate: 48_000,
+            bits_per_sample: 32,
+            sample_format: hound::SampleFormat::Float,
+        };
+        hound::WavWriter::create(&empty, spec)
+            .expect("writer")
+            .finalize()
+            .expect("finalize");
+        let error = load_wav(&empty).expect_err("empty");
+        assert!(matches!(error, FixtureError::Shape(_)), "{error}");
+    }
+
+    #[test]
+    fn load_wav_scales_integer_samples() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("int.wav");
+        let spec = hound::WavSpec {
+            channels: 1,
+            sample_rate: 48_000,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        let mut writer = hound::WavWriter::create(&path, spec).expect("writer");
+        for sample in [0i16, 16_384, -16_384, 32_767] {
+            writer.write_sample(sample).expect("sample");
+        }
+        writer.finalize().expect("finalize");
+        let buffer = load_wav(&path).expect("load");
+        assert_eq!(buffer.frame_count(), 4);
+        assert!((buffer.data()[0] - 0.0).abs() < 1e-6);
+        assert!((buffer.data()[1] - 0.5).abs() < 1e-3);
+        assert!((buffer.data()[2] + 0.5).abs() < 1e-3);
+        assert!(buffer.data()[3] > 0.99);
+    }
+
+    #[test]
+    fn write_wav_reports_a_blocked_parent_directory() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let blocker = dir.path().join("blocker");
+        std::fs::write(&blocker, b"x").expect("write");
+        let path = blocker.join("nested").join("out.wav");
+        let buffer = buffer("one_shot").expect("fixture");
+        let error = write_wav(&path, &buffer).expect_err("blocked parent");
+        assert!(matches!(error, FixtureError::Io { .. }), "{error}");
+    }
+
+    #[test]
+    fn sha256_helpers_cover_files_and_buffers() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("one_shot.wav");
+        let buffer = buffer("one_shot").expect("fixture");
+        write_wav(&path, &buffer).expect("write");
+        let file_hash = sha256_file(&path).expect("hash");
+        assert_eq!(file_hash.len(), 64);
+        assert!(file_hash.chars().all(|ch| ch.is_ascii_hexdigit()));
+
+        let buffer_hash = sha256_buffer(&buffer);
+        assert_eq!(buffer_hash.len(), 64);
+        assert_eq!(buffer_hash, sha256_buffer(&buffer), "hash must be stable");
+
+        let missing = dir.path().join("missing.wav");
+        let error = sha256_file(&missing).expect_err("missing");
+        assert!(matches!(error, FixtureError::Io { .. }), "{error}");
+    }
+
+    #[test]
+    fn resampled_wrapper_returns_the_target_rate_and_rejects_unknown_names() {
+        let audio = resampled("gate", 48_000)
+            .expect("known fixture")
+            .expect("resample");
+        assert_eq!(audio.sample_rate, 48_000);
+        assert_eq!(audio.channels, 1);
+        assert_eq!(audio.frames(), FIXTURES[1].frames);
+        assert!(resampled("nope", 48_000).is_none());
+    }
+
+    #[test]
+    fn fixture_error_display_covers_every_variant() {
+        let error = FixtureError::UnknownFixture("nope".to_owned());
+        assert!(error.to_string().contains("unknown fixture"));
+        let error = FixtureError::Shape("bad shape".to_owned());
+        assert!(error.to_string().contains("bad shape"));
+        let error = FixtureError::Io {
+            path: "p".to_owned(),
+            source: std::io::Error::other("nope"),
+        };
+        assert!(error.to_string().contains("p"));
+        let json = serde_json::from_str::<serde_json::Value>("{").expect_err("json");
+        let error = FixtureError::Json(json);
+        assert!(error.to_string().contains("JSON"));
+    }
+
+    #[test]
+    fn fixture_manifest_round_trips_through_json() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let manifest = generate_all(dir.path()).expect("generate");
+        let text = std::fs::read_to_string(dir.path().join("manifest.json")).expect("manifest");
+        let parsed: FixtureManifest = serde_json::from_str(&text).expect("parse");
+        assert_eq!(manifest, parsed);
+        assert_eq!(parsed.schema_version, FIXTURE_MANIFEST_SCHEMA_VERSION);
+        assert_eq!(parsed.fixtures.len(), FIXTURE_NAMES.len());
+    }
 }
