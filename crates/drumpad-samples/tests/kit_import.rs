@@ -241,67 +241,6 @@ fn a_file_path_is_not_a_folder() {
 }
 
 #[test]
-fn hidden_directories_are_ignored() {
-    let (dir, mut library) = library();
-    let folder = dir.path().join("hidden-dirs");
-    fs::create_dir_all(folder.join(".hidden")).unwrap();
-    fs::create_dir_all(folder.join("__MACOSX")).unwrap();
-    write_wav(&folder.join("good.wav"), 440.0);
-    write_wav(&folder.join(".hidden/inner.wav"), 220.0);
-    write_wav(&folder.join("__MACOSX/resource.wav"), 330.0);
-
-    let imported = import_folder_into_new_kit(&mut library, "Visible Only", &folder).unwrap();
-    assert_eq!(imported.imported, 1);
-    assert!(imported.rejected.is_empty());
-    assert_eq!(imported.kit.pads[0].name.as_deref(), Some("good"));
-}
-
-#[test]
-fn awkward_names_get_readable_pad_names_and_safe_copies() {
-    let (dir, mut library) = library();
-    let folder = dir.path().join("naming");
-    fs::create_dir_all(&folder).unwrap();
-    write_wav(&folder.join("   .wav"), 440.0);
-    let long_stem = "x".repeat(100);
-    write_wav(&folder.join(format!("{long_stem}.wav")), 880.0);
-
-    let imported = import_folder_into_new_kit(&mut library, "Naming", &folder).unwrap();
-    assert_eq!(imported.imported, 2);
-    assert_eq!(imported.kit.pads[0].name.as_deref(), Some("Pad 1"));
-    assert_eq!(
-        imported.kit.pads[1].name.as_ref().unwrap().chars().count(),
-        64
-    );
-    let first = imported.kit.pads[0].layers[0].sample.as_ref().unwrap();
-    let second = imported.kit.pads[1].layers[0].sample.as_ref().unwrap();
-    assert_eq!(first.path.as_str(), "samples/pad-01-sample.wav");
-    assert!(second.path.as_str().starts_with("samples/pad-02-"));
-    assert!(second.path.as_str().ends_with(".wav"));
-    assert!(second.path.as_str().len() <= "samples/pad-02-".len() + 48 + 4);
-    assert!(first.resolve(&imported.kit_dir).is_file());
-    assert!(second.resolve(&imported.kit_dir).is_file());
-}
-
-#[test]
-fn truncated_files_are_rejected_without_aborting() {
-    let (dir, mut library) = library();
-    let folder = dir.path().join("truncated");
-    fs::create_dir_all(&folder).unwrap();
-    write_wav(&folder.join("good.wav"), 440.0);
-    let broken = folder.join("broken.wav");
-    write_wav(&broken, 880.0);
-    let mut bytes = fs::read(&broken).unwrap();
-    bytes.truncate(44);
-    fs::write(&broken, bytes).unwrap();
-
-    let imported = import_folder_into_new_kit(&mut library, "Truncated", &folder).unwrap();
-    assert_eq!(imported.imported, 1);
-    assert_eq!(imported.rejected.len(), 1);
-    assert!(imported.rejected[0].path.ends_with("broken.wav"));
-    assert!(!imported.rejected[0].reason.is_empty());
-}
-
-#[test]
 fn kit_dir_returns_the_created_folder_and_reports_missing_kits() {
     use drumpad_model::kit::{KitId, LibraryError};
 

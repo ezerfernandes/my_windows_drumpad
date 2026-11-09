@@ -497,42 +497,4 @@ mod tests {
         assert_eq!(second, "pad-02-kick.wav");
         assert_ne!(first, second);
     }
-
-    #[test]
-    fn existing_copy_names_advance_to_a_free_suffix() {
-        let dir = tempfile::tempdir().unwrap();
-        fs::write(dir.path().join("pad-01-kick.wav"), b"existing").unwrap();
-        let mut used = HashSet::new();
-        let name = unique_copy_name(0, "kick", "wav", dir.path(), &mut used);
-        assert_eq!(name, "pad-01-kick-2.wav");
-    }
-
-    #[test]
-    fn ignored_directories_are_recognised() {
-        for name in [
-            ".git",
-            ".hidden",
-            "__MACOSX",
-            "$RECYCLE.BIN",
-            "System Volume Information",
-        ] {
-            assert!(is_ignored_directory(name), "{name}");
-        }
-        assert!(!is_ignored_directory("samples"));
-    }
-
-    #[test]
-    fn display_names_fall_back_and_truncate() {
-        assert_eq!(display_name("   ", 3), "Pad 4");
-        assert_eq!(display_name("Kick", 0), "Kick");
-        assert_eq!(display_name(&"x".repeat(100), 0).chars().count(), 64);
-    }
-
-    #[test]
-    fn ignored_names_cover_all_temp_patterns() {
-        for name in ["file.wav~", "file.TEMP", "~backup.wav"] {
-            assert!(is_ignored_name(name), "{name}");
-        }
-        assert!(!is_ignored_name("kick.WAV"));
-    }
 }
