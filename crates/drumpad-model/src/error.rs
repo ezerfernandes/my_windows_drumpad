@@ -161,4 +161,52 @@ mod tests {
             "settings schema version 9 is not supported; this build supports version 1"
         );
     }
+
+    #[test]
+    fn json_errors_keep_context_and_source() {
+        let source = serde_json::from_str::<serde_json::Value>("{").expect_err("invalid json");
+        let error = Error::json("could not parse settings", source);
+        assert_eq!(error.to_string(), "could not parse settings");
+        assert!(error.source().is_some());
+    }
+
+    #[test]
+    fn path_and_home_errors_render_actionable_messages() {
+        use std::path::PathBuf;
+
+        let marker = PathBuf::from(r"C:\Users\example\drumpad.portable");
+        assert!(
+            Error::InvalidPortableMarker {
+                path: marker.clone()
+            }
+            .to_string()
+            .contains("drumpad.portable")
+        );
+        assert!(
+            Error::MissingParent { path: marker }
+                .to_string()
+                .contains("has no parent directory")
+        );
+        assert_eq!(
+            Error::MissingHomeDirectory.to_string(),
+            "could not resolve the user home directory for app data"
+        );
+    }
+
+    #[test]
+    fn every_config_error_renders_its_guidance() {
+        let scale = ConfigError::InvalidUiScale {
+            value: 9.0,
+            min: 0.75,
+            max: 2.0,
+        };
+        assert!(scale.to_string().contains("ui.scale 9"));
+
+        let level = ConfigError::InvalidLogLevel {
+            value: "chatty".to_owned(),
+            allowed: vec!["error", "warn", "info", "debug", "trace"],
+        };
+        assert!(level.to_string().contains("chatty"));
+        assert!(level.to_string().contains("info"));
+    }
 }

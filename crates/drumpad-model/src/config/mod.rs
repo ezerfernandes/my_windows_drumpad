@@ -300,6 +300,39 @@ mod tests {
     }
 
     #[test]
+    fn every_log_level_round_trips_through_display_parsing_and_json() {
+        for level in LogLevel::ALL {
+            assert_eq!(level.as_str(), level.to_string());
+            assert_eq!(level.as_str().parse::<LogLevel>(), Ok(level));
+
+            let encoded = serde_json::to_string(&level).expect("serialize level");
+            let decoded: LogLevel = serde_json::from_str(&encoded).expect("parse level");
+            assert_eq!(decoded, level);
+        }
+    }
+
+    #[test]
+    fn check_accepts_valid_settings_and_surfaces_invalid_ones() {
+        AppSettings::default()
+            .check()
+            .expect("default settings are valid");
+
+        let invalid = AppSettings {
+            logging: LoggingSettings {
+                retention_days: 999,
+                ..LoggingSettings::default()
+            },
+            ..AppSettings::default()
+        };
+        assert!(matches!(
+            invalid.check(),
+            Err(crate::error::Error::Config(
+                ConfigError::InvalidLogRetention { .. }
+            ))
+        ));
+    }
+
+    #[test]
     fn log_level_serializes_as_lowercase() {
         let encoded = serde_json::to_string(&LogLevel::Warn).expect("level serializes");
         assert_eq!(encoded, "\"warn\"");
