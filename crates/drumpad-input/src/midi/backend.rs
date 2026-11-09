@@ -452,4 +452,68 @@ mod tests {
         drop(old);
         drop(new);
     }
+
+    #[test]
+    fn port_reenumeration_updates_names_and_indices() {
+        let mut backend = FakeMidiBackend::new(["Alesis Nitro Max", "Virtual Piano"]);
+        let first = backend.list_ports().unwrap();
+        assert_eq!(
+            first
+                .iter()
+                .map(|port| port.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Alesis Nitro Max", "Virtual Piano"]
+        );
+        assert_eq!(first[1].index, 1);
+
+        backend.set_ports(["Virtual Piano", "Alesis Nitro Max"]);
+        let reordered = backend.list_ports().unwrap();
+        assert_eq!(reordered[0].name, "Virtual Piano");
+        assert_eq!(reordered[0].index, 0);
+        assert_eq!(reordered[1].name, "Alesis Nitro Max");
+
+        // A descriptor from the old enumeration no longer matches.
+        assert!(matches!(
+            backend.open(&first[0], Box::new(|_, _| {})),
+            Err(MidiError::PortNotFound { .. })
+        ));
+        assert!(backend.open(&reordered[1], Box::new(|_, _| {})).is_ok());
+    }
+
+    #[test]
+    fn failed_open_keeps_the_existing_connection_usable() {
+        let mut backend = FakeMidiBackend::new(["Alesis Nitro Max"]);
+        let port = backend.list_ports().unwrap().remove(0);
+        let received = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&received);
+        let connection = backend
+            .open(
+                &port,
+                Box::new(move |_, _| {
+                    counter.fetch_add(1, Ordering::SeqCst);
+                }),
+            )
+            .unwrap();
+
+        backend.fail_next_open("Alesis Nitro Max");
+        assert!(matches!(
+            backend.open(&port, Box::new(|_, _| {})),
+            Err(MidiError::OpenFailed { .. })
+        ));
+        assert_eq!(backend.open_count(), 1);
+        assert_eq!(backend.close_count(), 0);
+        assert!(backend.deliver("Alesis Nitro Max", 1, &[0x90, 36, 100]));
+        assert_eq!(received.load(Ordering::SeqCst), 1);
+        drop(connection);
+        assert_eq!(backend.close_count(), 1);
+    }
+
+    #[test]
+    fn deliver_with_no_connection_reports_false() {
+        let backend = FakeMidiBackend::new(["Alesis Nitro Max"]);
+        assert!(!backend.deliver("Alesis Nitro Max", 1, &[0x90, 36, 100]));
+        assert!(!backend.deliver("Missing", 1, &[0x90, 36, 100]));
+        assert_eq!(backend.open_count(), 0);
+        assert_eq!(backend.close_count(), 0);
+    }
 }

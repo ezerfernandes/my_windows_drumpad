@@ -431,4 +431,54 @@ mod tests {
         let defaults = MidiPreferences::default();
         assert!(defaults.auto_reconnect);
     }
+
+    #[test]
+    fn missing_schema_defaults_auto_reconnect_to_true() {
+        let preferences: MidiPreferences =
+            serde_json::from_str(r#"{"channel_filter":{"mode":"all"}}"#).unwrap();
+        assert!(preferences.auto_reconnect);
+        assert_eq!(preferences.device_name, None);
+    }
+
+    #[test]
+    fn selecting_a_device_by_name_connects_it() {
+        let mut manager = manager(["Alesis Nitro Max"], MidiPreferences::default(), None);
+        assert!(manager.connect_selected().unwrap().is_none());
+        manager.set_device_name(Some("Alesis Nitro Max".to_owned()));
+        let event = manager.connect_selected().unwrap().unwrap();
+        assert!(matches!(event, HotplugEvent::Connected { .. }));
+        assert!(manager.is_connected());
+        // Already connected: a second call is a no-op.
+        assert!(manager.connect_selected().unwrap().is_none());
+    }
+
+    #[test]
+    fn auto_reconnect_disabled_never_opens_the_saved_device() {
+        let preferences = MidiPreferences {
+            device_name: Some("Alesis Nitro Max".to_owned()),
+            auto_reconnect: false,
+            ..MidiPreferences::default()
+        };
+        let mut manager = manager(["Alesis Nitro Max"], preferences, None);
+        let events = manager.poll().unwrap();
+        assert!(!manager.is_connected());
+        assert!(
+            events
+                .iter()
+                .all(|event| !matches!(event, HotplugEvent::Connected { .. }))
+        );
+        assert!(matches!(
+            manager.connect_selected(),
+            Ok(Some(HotplugEvent::Connected { .. }))
+        ));
+    }
+
+    #[test]
+    fn polling_without_a_saved_device_reports_only_port_changes() {
+        let mut manager = manager(["Alesis Nitro Max"], MidiPreferences::default(), None);
+        let events = manager.poll().unwrap();
+        assert_eq!(events.len(), 1);
+        assert!(matches!(events[0], HotplugEvent::PortsChanged { .. }));
+        assert!(!manager.is_connected());
+    }
 }

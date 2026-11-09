@@ -284,4 +284,26 @@ mod tests {
             config
         );
     }
+
+    #[test]
+    fn custom_curve_clamps_values_above_its_last_point() {
+        let table = table(VelocityCurve::Custom(vec![(1, 20), (100, 90)]));
+        assert_eq!(table.map_raw(100).get(), 90);
+        assert_eq!(table.map_raw(127).get(), 90);
+        assert_eq!(table.map_raw(0).get(), 20);
+    }
+
+    #[test]
+    fn default_config_is_linear_without_offsets() {
+        let config = MidiVelocityConfig::default();
+        assert_eq!(config.curve, VelocityCurve::Linear);
+        assert_eq!(config.pad_sensitivity, [0; PAD_COUNT]);
+        let table = config.compile().unwrap();
+        assert_eq!(
+            config
+                .map(&table, Velocity::new(64).unwrap(), PadId::from_index(0))
+                .get(),
+            64
+        );
+    }
 }

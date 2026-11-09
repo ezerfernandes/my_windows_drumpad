@@ -357,4 +357,11 @@ mod tests {
         );
         assert_eq!(serde_json::from_str::<InputEvent>(&json).unwrap(), event);
     }
+
+    #[test]
+    fn trigger_sources_have_stable_ids() {
+        assert_eq!(TriggerSource::Keyboard.as_str(), "keyboard");
+        assert_eq!(TriggerSource::Midi.as_str(), "midi");
+        assert_eq!(TriggerSource::UiPreview.as_str(), "ui_preview");
+    }
 }

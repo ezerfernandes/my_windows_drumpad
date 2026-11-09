@@ -480,4 +480,67 @@ mod tests {
             })
         ));
     }
+
+    #[test]
+    fn multiple_channel_filter_rejects_out_of_range_entries() {
+        assert!(ChannelFilter::Multiple(vec![0, 9]).is_valid());
+        assert!(!ChannelFilter::Multiple(vec![0, 16]).is_valid());
+        assert!(ChannelFilter::Multiple(Vec::new()).is_valid());
+    }
+
+    #[test]
+    fn parsed_events_expose_their_channel() {
+        assert_eq!(
+            MidiEvent::NoteOn {
+                channel: 3,
+                note: 36,
+                velocity: velocity(100)
+            }
+            .channel(),
+            Some(3)
+        );
+        assert_eq!(
+            MidiEvent::NoteOff {
+                channel: 4,
+                note: 36
+            }
+            .channel(),
+            Some(4)
+        );
+        assert_eq!(
+            MidiEvent::ControlChange {
+                channel: 9,
+                controller: 4,
+                value: 64
+            }
+            .channel(),
+            Some(9)
+        );
+        assert_eq!(
+            MidiEvent::Ignored {
+                status: 0xF8,
+                kind: IgnoreKind::Clock
+            }
+            .channel(),
+            None
+        );
+    }
+
+    #[test]
+    fn system_reset_and_other_system_bytes_are_classified() {
+        let events = MidiParser::parse_all(&[0xFF, 0xFD]);
+        assert_eq!(
+            events,
+            vec![
+                MidiEvent::Ignored {
+                    status: 0xFF,
+                    kind: IgnoreKind::SystemReset
+                },
+                MidiEvent::Ignored {
+                    status: 0xFD,
+                    kind: IgnoreKind::System
+                }
+            ]
+        );
+    }
 }

@@ -263,12 +263,44 @@ mod tests {
         assert!(producer.push(trigger(1, 2)).is_ok());
         assert_eq!(producer.push(trigger(2, 3)), Err(PushError::Full));
         assert_eq!(producer.dropped(), 1);
+        assert_eq!(consumer.dropped(), 1);
         assert_eq!(consumer.len(), 2);
         assert_eq!(consumer.pop(), Some(trigger(0, 1)));
         assert!(producer.push(trigger(2, 3)).is_ok());
         assert_eq!(consumer.pop(), Some(trigger(1, 2)));
         assert_eq!(consumer.pop(), Some(trigger(2, 3)));
         assert_eq!(consumer.pop(), None);
+    }
+
+    #[test]
+    fn typed_push_helpers_and_diagnostics_preserve_events() {
+        let (producer, consumer) = event_queue(4);
+        assert_eq!(producer.capacity(), 4);
+        assert_eq!(consumer.capacity(), 4);
+        assert!(producer.is_empty());
+        assert!(consumer.is_empty());
+        assert_eq!(producer.len(), 0);
+
+        let trigger = TriggerEvent::new(
+            PadId::from_index(2),
+            Velocity::new(80).unwrap(),
+            TriggerSource::Midi,
+            7,
+        );
+        producer.push_trigger(trigger).unwrap();
+        let release = ReleaseEvent::new(PadId::from_index(2), TriggerSource::Midi, 8);
+        producer.push_release(release).unwrap();
+
+        assert_eq!(producer.len(), 2);
+        assert_eq!(consumer.len(), 2);
+        assert!(!producer.is_empty());
+        assert!(!consumer.is_empty());
+        assert_eq!(producer.dropped(), 0);
+        assert_eq!(consumer.dropped(), 0);
+        assert_eq!(consumer.pop(), Some(InputEvent::Trigger(trigger)));
+        assert_eq!(consumer.pop(), Some(InputEvent::Release(release)));
+        assert_eq!(consumer.pop(), None);
+        assert!(consumer.is_empty());
     }
 
     #[test]

@@ -623,4 +623,211 @@ mod tests {
         router.process_bytes(&[0x99, 46, 100], 1, &mut out);
         assert!(matches!(out.as_slice(), [MidiOutput::Trigger(_)]));
     }
+
+    #[test]
+    fn output_helpers_expose_pad_and_queue_events() {
+        let pad = PadId::from_index(3);
+        let trigger = TriggerEvent::new(pad, Velocity::DEFAULT, TriggerSource::Midi, 1);
+        let release = ReleaseEvent::new(pad, TriggerSource::Midi, 2);
+        let hihat = MidiOutput::HiHat {
+            event: trigger,
+            articulation: HiHatArticulation::Open,
+            sound: HiHatSound::Hat,
+        };
+        let learned = MidiOutput::Learned {
+            pad,
+            control: CapturedControl::Note {
+                note: 36,
+                channel: 0,
+            },
+        };
+        let ignored = MidiOutput::Ignored(MidiIgnoreReason::UnmappedNote);
+
+        assert_eq!(MidiOutput::Trigger(trigger).pad(), Some(pad));
+        assert_eq!(MidiOutput::Release(release).pad(), Some(pad));
+        assert_eq!(hihat.pad(), Some(pad));
+        assert_eq!(learned.pad(), Some(pad));
+        assert_eq!(ignored.pad(), None);
+
+        assert!(matches!(
+            MidiOutput::Trigger(trigger).event(),
+            Some(crate::trigger::InputEvent::Trigger(_))
+        ));
+        assert!(matches!(
+            MidiOutput::Release(release).event(),
+            Some(crate::trigger::InputEvent::Release(_))
+        ));
+        assert!(matches!(
+            hihat.event(),
+            Some(crate::trigger::InputEvent::Trigger(_))
+        ));
+        assert_eq!(learned.event(), None);
+        assert_eq!(ignored.event(), None);
+    }
+
+    #[test]
+    fn filtered_note_off_and_cc_are_ignored() {
+        let mut router = router();
+        router.set_channel_filter(ChannelFilter::Single(0));
+        let mut out = Vec::new();
+        router.process_bytes(&[0x99, 36, 0], 1, &mut out);
+        assert_eq!(
+            out,
+            vec![MidiOutput::Ignored(MidiIgnoreReason::ChannelFiltered)]
+        );
+        out.clear();
+        router.process_bytes(&[0xB9, 4, 64], 2, &mut out);
+        assert_eq!(
+            out,
+            vec![MidiOutput::Ignored(MidiIgnoreReason::ChannelFiltered)]
+        );
+    }
+
+    #[test]
+    fn note_off_for_an_unheld_note_is_ignored() {
+        let mut router = router();
+        let mut out = Vec::new();
+        router.process_bytes(&[0x80, 36, 0], 1, &mut out);
+        assert_eq!(
+            out,
+            vec![MidiOutput::Ignored(MidiIgnoreReason::UnmappedNote)]
+        );
+    }
+
+    #[test]
+    fn cc_is_ignored_when_hihat_is_disabled() {
+        let config = MidiRouterConfig {
+            hihat_enabled: false,
+            ..MidiRouterConfig::default()
+        };
+        let mut router = MidiRouter::new(MidiNoteMap::nitro_max_template(), config).unwrap();
+        let mut out = Vec::new();
+        router.process_bytes(&[0xB9, 4, 64], 1, &mut out);
+        assert_eq!(
+            out,
+            vec![MidiOutput::Ignored(MidiIgnoreReason::UnmappedControl)]
+        );
+    }
+
+    #[test]
+    fn cc_is_ignored_when_the_map_has_no_hihat_pad() {
+        let mut map = MidiNoteMap::new();
+        map.assign(
+            36,
+            PadId::from_index(0),
+            "Kick",
+            crate::midi::note_map::AssignPolicy::Reject,
+        )
+        .unwrap();
+        let mut router = MidiRouter::new(map, MidiRouterConfig::default()).unwrap();
+        assert_eq!(router.hihat_pad(), None);
+        let mut out = Vec::new();
+        router.process_bytes(&[0xB9, 4, 64], 1, &mut out);
+        assert_eq!(
+            out,
+            vec![MidiOutput::Ignored(MidiIgnoreReason::UnmappedNote)]
+        );
+    }
+
+    #[test]
+    fn repeated_note_on_keeps_one_held_entry_and_one_release() {
+        let mut router = router();
+        let mut out = Vec::new();
+        router.process_bytes(&[0x90, 36, 100, 36, 90], 1, &mut out);
+        assert_eq!(router.held_count(), 1);
+        out.clear();
+        router.process_bytes(&[0x80, 36, 0], 2, &mut out);
+        assert_eq!(
+            out,
+            vec![MidiOutput::Release(ReleaseEvent::new(
+                PadId::from_index(0),
+                TriggerSource::Midi,
+                2
+            ))]
+        );
+        assert_eq!(router.held_count(), 0);
+    }
+
+    #[test]
+    fn configuration_accessors_and_replacement_affect_routing() {
+        let mut router = router();
+        assert_eq!(router.note_map().mappings().len(), 19);
+        assert_eq!(router.channel_filter(), &ChannelFilter::All);
+        assert_eq!(
+            router.velocity_config().curve,
+            crate::midi::velocity::VelocityCurve::Linear
+        );
+        assert_eq!(router.learn().armed(), None);
+        assert_eq!(router.hihat().articulation(), HiHatArticulation::Closed);
+        assert_eq!(router.hihat_pad(), Some(PadId::from_index(9)));
+
+        let mut map = MidiNoteMap::new();
+        map.assign(
+            60,
+            PadId::from_index(3),
+            "Custom",
+            crate::midi::note_map::AssignPolicy::Reject,
+        )
+        .unwrap();
+        router.set_note_map(map);
+        assert_eq!(router.note_map().mappings().len(), 1);
+
+        let mut out = Vec::new();
+        router.process_bytes(&[0x90, 60, 100], 3, &mut out);
+        let MidiOutput::Trigger(event) = out[0] else {
+            panic!("expected trigger");
+        };
+        assert_eq!(event.pad, PadId::from_index(3));
+        assert_eq!(event.velocity.get(), 100);
+
+        router
+            .set_velocity_config(MidiVelocityConfig::new(
+                crate::midi::velocity::VelocityCurve::Fixed(Velocity::new(33).unwrap()),
+            ))
+            .unwrap();
+        out.clear();
+        router.process_bytes(&[0x90, 60, 127], 4, &mut out);
+        let MidiOutput::Trigger(event) = out[0] else {
+            panic!("expected trigger");
+        };
+        assert_eq!(event.velocity.get(), 33);
+    }
+
+    #[test]
+    fn invalid_velocity_config_is_rejected_and_previous_table_stays() {
+        let mut router = router();
+        let invalid =
+            MidiVelocityConfig::new(crate::midi::velocity::VelocityCurve::Custom(vec![(1, 1)]));
+        assert!(router.set_velocity_config(invalid).is_err());
+        assert_eq!(
+            router.velocity_config().curve,
+            crate::midi::velocity::VelocityCurve::Linear
+        );
+
+        let mut out = Vec::new();
+        router.process_bytes(&[0x90, 36, 100], 1, &mut out);
+        let MidiOutput::Trigger(event) = out[0] else {
+            panic!("expected trigger");
+        };
+        assert_eq!(event.velocity.get(), 100);
+    }
+
+    #[test]
+    fn reset_parser_discards_partial_message_state() {
+        let mut router = router();
+        let mut out = Vec::new();
+        router.process_bytes(&[0x90, 36], 1, &mut out);
+        assert!(out.is_empty());
+        router.reset_parser();
+        router.process_bytes(&[100], 2, &mut out);
+        assert!(matches!(
+            out.as_slice(),
+            [MidiOutput::Ignored(MidiIgnoreReason::Parser(
+                IgnoreKind::Malformed
+            ))]
+        ));
+        out.clear();
+        router.process_bytes(&[0x90, 36, 100], 3, &mut out);
+        assert!(matches!(out.as_slice(), [MidiOutput::Trigger(_)]));
+    }
 }

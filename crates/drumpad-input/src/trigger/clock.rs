@@ -149,4 +149,16 @@ mod tests {
         clock.advance_us(10);
         assert_eq!(clock.now_us(), u64::MAX);
     }
+
+    #[test]
+    fn clock_accessors_expose_their_origin_and_value() {
+        let origin = Instant::now();
+        let clock = MonotonicClock::started_at(origin);
+        assert_eq!(clock.origin(), origin);
+
+        let manual = ManualClock::new(77);
+        assert_eq!(manual.value(), 77);
+        let default_clock = MonotonicClock::default();
+        assert!(default_clock.now_us() < u64::MAX);
+    }
 }

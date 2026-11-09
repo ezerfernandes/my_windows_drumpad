@@ -320,4 +320,35 @@ mod tests {
         assert_eq!(note_name(60), "C4");
         assert_eq!(note_name(127), "G9");
     }
+
+    #[test]
+    fn message_kinds_expose_short_labels() {
+        assert_eq!(MonitorKind::NoteOn.label(), "note on");
+        assert_eq!(MonitorKind::NoteOff.label(), "note off");
+        assert_eq!(MonitorKind::ControlChange.label(), "cc");
+        assert_eq!(MonitorKind::Ignored.label(), "ignored");
+    }
+
+    #[test]
+    fn ignored_messages_name_every_reason() {
+        let mut monitor = MidiMonitor::new(8);
+        let expected = [
+            (0xF8, IgnoreKind::Clock, "clock"),
+            (0xFE, IgnoreKind::ActiveSensing, "active sensing"),
+            (0xFF, IgnoreKind::SystemReset, "system reset"),
+            (0xF0, IgnoreKind::System, "system"),
+            (0xA0, IgnoreKind::Unsupported, "unsupported"),
+            (0x00, IgnoreKind::Malformed, "malformed"),
+        ];
+        for (status, kind, label) in expected {
+            monitor.record(1, MidiEvent::Ignored { status, kind });
+            let entry = monitor.entries().last().unwrap();
+            assert!(
+                entry.text.contains(label),
+                "{} did not mention {label}",
+                entry.text
+            );
+        }
+        assert_eq!(monitor.total_seen(), 6);
+    }
 }

@@ -419,4 +419,49 @@ mod tests {
         let result = std::panic::catch_unwind(|| HiHatEngine::new(config));
         assert!(result.is_err());
     }
+
+    #[test]
+    fn articulations_expose_stable_ids() {
+        let expected = [
+            (HiHatArticulation::Open, "open"),
+            (HiHatArticulation::HalfOpen, "half_open"),
+            (HiHatArticulation::Closed, "closed"),
+            (HiHatArticulation::Pedal, "pedal"),
+            (HiHatArticulation::Splash, "splash"),
+        ];
+        for (articulation, id) in expected {
+            assert_eq!(articulation.as_str(), id);
+        }
+    }
+
+    #[test]
+    fn position_tracks_cc4_and_default_is_nitro_max() {
+        let mut engine = HiHatEngine::default();
+        assert_eq!(engine.position(), 0);
+        assert_eq!(engine.config().open_note, 46);
+        engine.control_change(4, 77);
+        assert_eq!(engine.position(), 77);
+        engine.control_change(4, 12);
+        assert_eq!(engine.position(), 12);
+    }
+
+    #[test]
+    fn cc4_returns_to_closed_from_half_open_and_open() {
+        let mut engine = HiHatEngine::nitro_max();
+        let mut seen = Vec::new();
+        for value in [60, 30, 127, 0] {
+            if let Some(trigger) = engine.control_change(4, value) {
+                seen.push(trigger.articulation);
+            }
+        }
+        assert_eq!(
+            seen,
+            vec![
+                HiHatArticulation::HalfOpen,
+                HiHatArticulation::Closed,
+                HiHatArticulation::Open,
+                HiHatArticulation::Closed,
+            ]
+        );
+    }
 }

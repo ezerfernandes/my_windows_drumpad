@@ -162,4 +162,15 @@ mod tests {
         assert!(tracker.reports().is_empty());
         assert!(tracker.report("A").is_none());
     }
+
+    #[test]
+    fn default_capacity_tracker_starts_empty_and_reports_samples() {
+        let mut tracker = MidiLatencyTracker::default_capacity();
+        assert!(tracker.reports().is_empty());
+        tracker.record("Nitro Max", 0, 250);
+        let report = tracker.report("Nitro Max").unwrap();
+        assert_eq!(report.latency.count, 1);
+        assert_eq!(report.latency.max, 250);
+        assert_eq!(report.jitter, None);
+    }
 }

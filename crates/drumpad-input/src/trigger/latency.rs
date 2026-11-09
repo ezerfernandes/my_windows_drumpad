@@ -251,4 +251,11 @@ mod tests {
         }
         assert!(!recorder.percentiles().unwrap().within_key_budget());
     }
+
+    #[test]
+    fn default_capacity_is_large_enough_for_percentiles() {
+        let recorder = LatencyRecorder::default_capacity();
+        assert!(recorder.is_empty());
+        assert_eq!(recorder.samples(), &[] as &[u32]);
+    }
 }

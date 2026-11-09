@@ -419,4 +419,23 @@ mod tests {
             Err(MidiMapError::UnsupportedSchemaVersion { .. })
         ));
     }
+
+    #[test]
+    fn default_map_is_empty_and_has_the_current_schema() {
+        let map = MidiNoteMap::default();
+        assert!(map.mappings().is_empty());
+        assert_eq!(map.schema_version, NOTE_MAP_SCHEMA_VERSION);
+        assert!(map.validate().is_ok());
+        assert_eq!(map.pad_for(36), None);
+    }
+
+    #[test]
+    fn map_json_without_schema_version_uses_the_current_one() {
+        let map = MidiNoteMap::nitro_max_template();
+        let mut value = serde_json::to_value(&map).unwrap();
+        value.as_object_mut().unwrap().remove("schema_version");
+        let restored = MidiNoteMap::from_json(&value.to_string()).unwrap();
+        assert_eq!(restored.schema_version, NOTE_MAP_SCHEMA_VERSION);
+        assert_eq!(restored, map);
+    }
 }

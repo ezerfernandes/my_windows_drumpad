@@ -241,4 +241,15 @@ mod tests {
             "CC64 on channel 1"
         );
     }
+
+    #[test]
+    fn disarming_cancels_capture() {
+        let mut learn = MidiLearn::new();
+        let pad = PadId::from_index(5);
+        learn.arm(pad);
+        assert_eq!(learn.armed(), Some(pad));
+        learn.disarm();
+        assert_eq!(learn.armed(), None);
+        assert_eq!(learn.observe(note_on(40)), LearnOutcome::NotArmed);
+    }
 }
