@@ -18,6 +18,8 @@
 //! latency_probe [--hits 1200] [--out <json>] [--markdown <md>] [--raw <csv>]
 //! ```
 
+use std::ffi::OsString;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Instant;
@@ -31,6 +33,7 @@ use drumpad_tools::latency::{
 use drumpad_tools::offline::RenderConfig;
 
 const DEFAULT_HITS: usize = 1_200;
+const USAGE: &str = "usage: latency_probe [--hits N] [--out json] [--markdown md] [--raw csv]";
 
 fn workspace_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -39,6 +42,7 @@ fn workspace_root() -> PathBuf {
         .to_path_buf()
 }
 
+#[derive(Debug, PartialEq, Eq)]
 struct Args {
     hits: usize,
     out: PathBuf,
@@ -46,7 +50,8 @@ struct Args {
     raw: PathBuf,
 }
 
-fn parse_args() -> Result<Args, String> {
+/// Parse arguments. `Ok(None)` means `--help` was requested.
+fn parse_args(mut args: impl Iterator<Item = OsString>) -> Result<Option<Args>, String> {
     let root = workspace_root();
     let mut hits = DEFAULT_HITS;
     let mut out = root
@@ -61,7 +66,6 @@ fn parse_args() -> Result<Args, String> {
         .join("baselines")
         .join("raw")
         .join("offline-probe.csv");
-    let mut args = std::env::args_os().skip(1);
     while let Some(arg) = args.next() {
         match arg.to_str() {
             Some("--hits") => {
@@ -88,12 +92,7 @@ fn parse_args() -> Result<Args, String> {
                         .ok_or_else(|| "--raw requires a path".to_owned())?,
                 );
             }
-            Some("--help" | "-h") => {
-                println!(
-                    "usage: latency_probe [--hits N] [--out json] [--markdown md] [--raw csv]"
-                );
-                std::process::exit(0);
-            }
+            Some("--help" | "-h") => return Ok(None),
             Some(other) => return Err(format!("unknown argument: {other}")),
             None => return Err("arguments must be valid UTF-8".to_owned()),
         }
@@ -101,12 +100,12 @@ fn parse_args() -> Result<Args, String> {
     if hits < 300 {
         return Err("--hits must be at least 300".to_owned());
     }
-    Ok(Args {
+    Ok(Some(Args {
         hits,
         out,
         markdown,
         raw,
-    })
+    }))
 }
 
 fn hardware() -> HardwareProfile {
@@ -127,28 +126,16 @@ fn hardware() -> HardwareProfile {
     }
 }
 
-fn main() -> ExitCode {
-    let args = match parse_args() {
-        Ok(args) => args,
-        Err(message) => {
-            eprintln!("error: {message}");
-            return ExitCode::from(1);
-        }
-    };
-
+/// Capture `hits` samples for both software metrics.
+fn measure(hits: usize) -> Result<(Vec<f64>, Vec<f64>), String> {
     let config = RenderConfig::default();
-    let mut backend = match FakeAudioBackend::new(config) {
-        Ok(backend) => backend,
-        Err(error) => {
-            eprintln!("error: cannot create backend: {error}");
-            return ExitCode::from(1);
-        }
-    };
+    let mut backend =
+        FakeAudioBackend::new(config).map_err(|error| format!("cannot create backend: {error}"))?;
     let pad = PadId::new(0).expect("pad 0");
     let velocity = Velocity::new(100).expect("velocity");
-    let mut key_samples = Vec::with_capacity(args.hits);
-    let mut midi_samples = Vec::with_capacity(args.hits);
-    for index in 0..args.hits {
+    let mut key_samples = Vec::with_capacity(hits);
+    let mut midi_samples = Vec::with_capacity(hits);
+    for index in 0..hits {
         let event = InputEvent::Trigger(TriggerEvent::new(
             pad,
             velocity,
@@ -156,66 +143,47 @@ fn main() -> ExitCode {
             (index as u64) * 1_000,
         ));
         let key_start = Instant::now();
-        if let Err(error) = backend.send_input(event) {
-            eprintln!("error: queue push failed: {error}");
-            return ExitCode::from(1);
-        }
+        backend
+            .send_input(event)
+            .map_err(|error| format!("queue push failed: {error}"))?;
         key_samples.push(key_start.elapsed().as_secs_f64() * 1_000.0);
 
         let midi_start = Instant::now();
         backend.process_block();
         midi_samples.push(midi_start.elapsed().as_secs_f64() * 1_000.0);
         if backend.active_pad_counts()[0] == 0 {
-            eprintln!("error: no active voice after a trigger block at hit {index}");
-            return ExitCode::from(1);
+            return Err(format!(
+                "no active voice after a trigger block at hit {index}"
+            ));
         }
     }
+    Ok((key_samples, midi_samples))
+}
 
-    let key_measurement =
-        Measurement::new(Metric::KeyToQueue, 100, key_samples.clone()).expect("key measurement");
-    let midi_measurement = Measurement::new(Metric::MidiToCallback, 100, midi_samples.clone())
-        .expect("midi measurement");
-    let key_verdict = match evaluate(
+/// Turn raw samples into the baseline document.
+fn build_report(
+    hits: usize,
+    key_samples: &[f64],
+    midi_samples: &[f64],
+    raw_capture: &Path,
+) -> Result<BaselineReport, String> {
+    let config = RenderConfig::default();
+    let key_measurement = Measurement::new(Metric::KeyToQueue, 100, key_samples.to_vec())
+        .map_err(|error| format!("key measurement: {error}"))?;
+    let midi_measurement = Measurement::new(Metric::MidiToCallback, 100, midi_samples.to_vec())
+        .map_err(|error| format!("midi measurement: {error}"))?;
+    let key_verdict = evaluate(
         &key_measurement,
         config.sample_rate,
         config.block_frames as u32,
-    ) {
-        Ok(verdict) => verdict,
-        Err(error) => {
-            eprintln!("error: key verdict: {error}");
-            return ExitCode::from(1);
-        }
-    };
-    let midi_verdict = match evaluate(
+    )
+    .map_err(|error| format!("key verdict: {error}"))?;
+    let midi_verdict = evaluate(
         &midi_measurement,
         config.sample_rate,
         config.block_frames as u32,
-    ) {
-        Ok(verdict) => verdict,
-        Err(error) => {
-            eprintln!("error: midi verdict: {error}");
-            return ExitCode::from(1);
-        }
-    };
-
-    // Raw capture: one line per hit, no summary-only artifact.
-    if let Some(parent) = args.raw.parent()
-        && let Err(error) = std::fs::create_dir_all(parent)
-    {
-        eprintln!("error: cannot create {}: {error}", parent.display());
-        return ExitCode::from(1);
-    }
-    let mut raw = String::from("index,key_to_queue_ms,midi_to_callback_ms\n");
-    for index in 0..args.hits {
-        raw.push_str(&format!(
-            "{index},{:.9},{:.9}\n",
-            key_samples[index], midi_samples[index]
-        ));
-    }
-    if let Err(error) = std::fs::write(&args.raw, raw) {
-        eprintln!("error: cannot write {}: {error}", args.raw.display());
-        return ExitCode::from(1);
-    }
+    )
+    .map_err(|error| format!("midi verdict: {error}"))?;
 
     let measured_row = BaselineRow {
         status: BaselineStatus::Measured,
@@ -223,10 +191,9 @@ fn main() -> ExitCode {
         sample_rate: config.sample_rate,
         block_frames: config.block_frames as u32,
         verdicts: vec![key_verdict, midi_verdict],
-        raw_capture: args
-            .raw
+        raw_capture: raw_capture
             .strip_prefix(workspace_root())
-            .unwrap_or(&args.raw)
+            .unwrap_or(raw_capture)
             .display()
             .to_string(),
         notes: "Offline engine-path probe only: excludes OS input, USB scan, WASAPI, DAC, and the Nitro Max Aux In. Physical rows are pending.".to_owned(),
@@ -247,64 +214,379 @@ fn main() -> ExitCode {
     report.rows.push(pending_48);
     report.rows.push(pending_441);
     report.rows.push(pending_96);
-    report.notes = "Generated by `cargo run -p drumpad-tools --bin latency_probe`. \
+    report.notes = format!(
+        "Generated by `cargo run -p drumpad-tools --bin latency_probe` with {hits} hits. \
         The first row is a real offline measurement on the named machine; the reference rows \
         require the physical loopback in docs/qa/latency-protocol.md and are not evidence until measured."
-        .to_owned();
+    );
+    Ok(report)
+}
+
+/// Write the raw CSV, JSON baseline, optional Markdown, and the summary line.
+fn emit(
+    args: &Args,
+    report: &BaselineReport,
+    key_samples: &[f64],
+    midi_samples: &[f64],
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> ExitCode {
+    // Raw capture: one line per hit, no summary-only artifact.
+    if let Some(parent) = args.raw.parent()
+        && let Err(error) = std::fs::create_dir_all(parent)
+    {
+        let _ = writeln!(err, "error: cannot create {}: {error}", parent.display());
+        return ExitCode::from(1);
+    }
+    let mut raw = String::from("index,key_to_queue_ms,midi_to_callback_ms\n");
+    for index in 0..key_samples.len() {
+        raw.push_str(&format!(
+            "{index},{:.9},{:.9}\n",
+            key_samples[index], midi_samples[index]
+        ));
+    }
+    if let Err(error) = std::fs::write(&args.raw, raw) {
+        let _ = writeln!(err, "error: cannot write {}: {error}", args.raw.display());
+        return ExitCode::from(1);
+    }
 
     if let Some(parent) = args.out.parent()
         && let Err(error) = std::fs::create_dir_all(parent)
     {
-        eprintln!("error: cannot create {}: {error}", parent.display());
+        let _ = writeln!(err, "error: cannot create {}: {error}", parent.display());
         return ExitCode::from(1);
     }
-    let json = match serde_json::to_string_pretty(&report) {
+    let json = match serde_json::to_string_pretty(report) {
         Ok(json) => json,
         Err(error) => {
-            eprintln!("error: cannot serialize baseline: {error}");
+            let _ = writeln!(err, "error: cannot serialize baseline: {error}");
             return ExitCode::from(1);
         }
     };
     if let Err(error) = std::fs::write(&args.out, format!("{json}\n")) {
-        eprintln!("error: cannot write {}: {error}", args.out.display());
+        let _ = writeln!(err, "error: cannot write {}: {error}", args.out.display());
         return ExitCode::from(1);
     }
 
-    println!(
+    let key_stats = report.rows[0].verdicts.first().map(|verdict| verdict.stats);
+    let midi_stats = report.rows[0].verdicts.get(1).map(|verdict| verdict.stats);
+    let _ = writeln!(
+        out,
         "offline probe: {} hits, key_to_queue p99 {:.4} ms ({}), midi_to_callback p99 {:.4} ms ({})",
-        args.hits,
-        key_measurement
-            .stats()
-            .map(|stats| stats.p99_ms)
-            .unwrap_or(0.0),
-        if report.rows[0].verdicts[0].pass {
+        key_samples.len(),
+        key_stats.map(|stats| stats.p99_ms).unwrap_or(0.0),
+        if report.rows[0].verdicts.first().is_some_and(|v| v.pass) {
             "pass"
         } else {
             "FAIL"
         },
-        midi_measurement
-            .stats()
-            .map(|stats| stats.p99_ms)
-            .unwrap_or(0.0),
-        if report.rows[0].verdicts[1].pass {
+        midi_stats.map(|stats| stats.p99_ms).unwrap_or(0.0),
+        if report.rows[0].verdicts.get(1).is_some_and(|v| v.pass) {
             "pass"
         } else {
             "FAIL"
         },
     );
-    println!("wrote {} and {}", args.out.display(), args.raw.display());
+    let _ = writeln!(
+        out,
+        "wrote {} and {}",
+        args.out.display(),
+        args.raw.display()
+    );
 
-    if let Some(path) = args.markdown {
-        if let Err(error) = std::fs::write(&path, report.to_markdown()) {
-            eprintln!("error: cannot write {}: {error}", path.display());
+    if let Some(path) = &args.markdown {
+        if let Err(error) = std::fs::write(path, report.to_markdown()) {
+            let _ = writeln!(err, "error: cannot write {}: {error}", path.display());
             return ExitCode::from(1);
         }
-        println!("wrote {}", path.display());
+        let _ = writeln!(out, "wrote {}", path.display());
     }
 
     if report.rows[0].verdicts.iter().all(|verdict| verdict.pass) {
         ExitCode::SUCCESS
     } else {
         ExitCode::from(2)
+    }
+}
+
+fn run(args: impl Iterator<Item = OsString>, out: &mut dyn Write, err: &mut dyn Write) -> ExitCode {
+    let args = match parse_args(args) {
+        Ok(Some(args)) => args,
+        Ok(None) => {
+            let _ = writeln!(out, "{USAGE}");
+            return ExitCode::SUCCESS;
+        }
+        Err(message) => {
+            let _ = writeln!(err, "error: {message}");
+            return ExitCode::from(1);
+        }
+    };
+
+    let (key_samples, midi_samples) = match measure(args.hits) {
+        Ok(samples) => samples,
+        Err(message) => {
+            let _ = writeln!(err, "error: {message}");
+            return ExitCode::from(1);
+        }
+    };
+    let report = match build_report(args.hits, &key_samples, &midi_samples, &args.raw) {
+        Ok(report) => report,
+        Err(message) => {
+            let _ = writeln!(err, "error: {message}");
+            return ExitCode::from(1);
+        }
+    };
+    emit(&args, &report, &key_samples, &midi_samples, out, err)
+}
+
+fn main() -> ExitCode {
+    let mut out = std::io::stdout().lock();
+    let mut err = std::io::stderr().lock();
+    run(std::env::args_os().skip(1), &mut out, &mut err)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args<'a>(values: &'a [&'a str]) -> impl Iterator<Item = OsString> + 'a {
+        values.iter().map(OsString::from)
+    }
+
+    fn run_with(values: &[&str]) -> (ExitCode, String, String) {
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        let code = run(args(values), &mut out, &mut err);
+        (
+            code,
+            String::from_utf8(out).expect("utf-8 stdout"),
+            String::from_utf8(err).expect("utf-8 stderr"),
+        )
+    }
+
+    fn s(path: &Path) -> String {
+        path.to_string_lossy().into_owned()
+    }
+
+    fn sample_set(hits: usize, value: f64) -> Vec<f64> {
+        vec![value; hits]
+    }
+
+    #[test]
+    fn help_prints_usage() {
+        let (code, out, err) = run_with(&["--help"]);
+        assert_eq!(code, ExitCode::SUCCESS);
+        assert!(out.contains("usage: latency_probe"), "{out}");
+        assert!(err.is_empty());
+    }
+
+    #[test]
+    fn argument_errors_are_typed() {
+        let (code, _, err) = run_with(&["--bogus"]);
+        assert_eq!(code, ExitCode::from(1));
+        assert!(err.contains("unknown argument"), "{err}");
+
+        let (code, _, err) = run_with(&["--hits"]);
+        assert_eq!(code, ExitCode::from(1));
+        assert!(err.contains("--hits requires an integer"), "{err}");
+
+        let (code, _, err) = run_with(&["--hits", "not-a-number"]);
+        assert_eq!(code, ExitCode::from(1));
+        assert!(err.contains("--hits requires an integer"), "{err}");
+
+        let (code, _, err) = run_with(&["--hits", "10"]);
+        assert_eq!(code, ExitCode::from(1));
+        assert!(err.contains("at least 300"), "{err}");
+
+        for option in ["--out", "--markdown", "--raw"] {
+            let (code, _, err) = run_with(&[option]);
+            assert_eq!(code, ExitCode::from(1));
+            assert!(err.contains(option), "{option}: {err}");
+            assert!(err.contains("requires a path"), "{option}: {err}");
+        }
+    }
+
+    #[test]
+    fn default_paths_live_under_the_tools_baselines_directory() {
+        let parsed = parse_args(args(&[])).expect("parse").expect("args");
+        assert_eq!(parsed.hits, DEFAULT_HITS);
+        assert!(parsed.markdown.is_none());
+        assert!(
+            parsed.out.ends_with(
+                Path::new("crates")
+                    .join("drumpad-tools")
+                    .join("baselines")
+                    .join("latency-baseline.json")
+            ),
+            "{}",
+            parsed.out.display()
+        );
+        assert!(
+            parsed.raw.ends_with(
+                Path::new("crates")
+                    .join("drumpad-tools")
+                    .join("baselines")
+                    .join("raw")
+                    .join("offline-probe.csv")
+            ),
+            "{}",
+            parsed.raw.display()
+        );
+    }
+
+    #[test]
+    fn measure_produces_one_finite_sample_per_hit() {
+        let (key, midi) = measure(300).expect("measure");
+        assert_eq!(key.len(), 300);
+        assert_eq!(midi.len(), 300);
+        assert!(
+            key.iter()
+                .all(|sample| sample.is_finite() && *sample >= 0.0)
+        );
+        assert!(
+            midi.iter()
+                .all(|sample| sample.is_finite() && *sample >= 0.0)
+        );
+    }
+
+    #[test]
+    fn emit_writes_json_csv_and_markdown_for_passing_samples() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let out_path = temp.path().join("baseline.json");
+        let raw = temp.path().join("raw.csv");
+        let markdown = temp.path().join("baseline.md");
+        let args = Args {
+            hits: 1200,
+            out: out_path.clone(),
+            markdown: Some(markdown.clone()),
+            raw: raw.clone(),
+        };
+        let key = sample_set(1200, 0.5);
+        let midi = sample_set(1200, 0.5);
+        let report = build_report(1200, &key, &midi, &raw).expect("report");
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+        let code = emit(&args, &report, &key, &midi, &mut stdout, &mut stderr);
+        assert_eq!(
+            code,
+            ExitCode::SUCCESS,
+            "{}",
+            String::from_utf8_lossy(&stderr)
+        );
+
+        let report: BaselineReport =
+            serde_json::from_str(&std::fs::read_to_string(&out_path).expect("json"))
+                .expect("parse");
+        assert_eq!(report.rows.len(), 4);
+        assert_eq!(report.rows[0].status, BaselineStatus::Measured);
+        assert_eq!(report.rows[1].status, BaselineStatus::Pending);
+        assert_eq!(report.rows[1].sample_rate, 48_000);
+        assert_eq!(report.rows[2].sample_rate, 44_100);
+        assert_eq!(report.rows[3].sample_rate, 96_000);
+        assert!(report.rows[0].verdicts.iter().all(|verdict| verdict.pass));
+
+        let raw_lines = std::fs::read_to_string(&raw).expect("raw").lines().count();
+        assert_eq!(raw_lines, 1201, "header plus one line per hit");
+
+        let markdown = std::fs::read_to_string(&markdown).expect("markdown");
+        assert!(
+            markdown.contains("# Latency baseline results"),
+            "{markdown}"
+        );
+        assert!(markdown.contains("| Status |"), "{markdown}");
+        assert!(markdown.contains("| pending |"), "{markdown}");
+    }
+
+    #[test]
+    fn emit_returns_exit_2_when_a_budget_is_missed() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let args = Args {
+            hits: 1200,
+            out: temp.path().join("baseline.json"),
+            markdown: None,
+            raw: temp.path().join("raw.csv"),
+        };
+        let key = sample_set(1200, 5.0); // over the 2 ms budget
+        let midi = sample_set(1200, 0.5);
+        let report = build_report(1200, &key, &midi, &args.raw).expect("report");
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+        let code = emit(&args, &report, &key, &midi, &mut stdout, &mut stderr);
+        assert_eq!(code, ExitCode::from(2));
+        let stdout = String::from_utf8(stdout).expect("utf-8");
+        assert!(stdout.contains("(FAIL)"), "{stdout}");
+    }
+
+    #[test]
+    fn unwritable_output_paths_are_reported() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let key = sample_set(1200, 0.5);
+        let midi = sample_set(1200, 0.5);
+
+        let args = Args {
+            hits: 1200,
+            out: temp.path().to_path_buf(),
+            markdown: None,
+            raw: temp.path().join("raw.csv"),
+        };
+        let report = build_report(1200, &key, &midi, &args.raw).expect("report");
+        let (code, _, err) = {
+            let mut out = Vec::new();
+            let mut err = Vec::new();
+            let code = emit(&args, &report, &key, &midi, &mut out, &mut err);
+            (code, out, String::from_utf8(err).expect("utf-8"))
+        };
+        assert_eq!(code, ExitCode::from(1));
+        assert!(err.contains("cannot write"), "{err}");
+
+        let args = Args {
+            hits: 1200,
+            out: temp.path().join("baseline.json"),
+            markdown: None,
+            raw: temp.path().to_path_buf(),
+        };
+        let report = build_report(1200, &key, &midi, &args.raw).expect("report");
+        let (code, _, err) = {
+            let mut out = Vec::new();
+            let mut err = Vec::new();
+            let code = emit(&args, &report, &key, &midi, &mut out, &mut err);
+            (code, out, String::from_utf8(err).expect("utf-8"))
+        };
+        assert_eq!(code, ExitCode::from(1));
+        assert!(err.contains("cannot write"), "{err}");
+
+        let args = Args {
+            hits: 1200,
+            out: temp.path().join("baseline2.json"),
+            markdown: Some(temp.path().to_path_buf()),
+            raw: temp.path().join("raw2.csv"),
+        };
+        let report = build_report(1200, &key, &midi, &args.raw).expect("report");
+        let (code, _, err) = {
+            let mut out = Vec::new();
+            let mut err = Vec::new();
+            let code = emit(&args, &report, &key, &midi, &mut out, &mut err);
+            (code, out, String::from_utf8(err).expect("utf-8"))
+        };
+        assert_eq!(code, ExitCode::from(1));
+        assert!(err.contains("cannot write"), "{err}");
+    }
+
+    #[test]
+    fn cli_measurement_smoke_run_writes_outputs() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let out = temp.path().join("baseline.json");
+        let raw = temp.path().join("raw.csv");
+        let (code, stdout, err) =
+            run_with(&["--hits", "1200", "--out", &s(&out), "--raw", &s(&raw)]);
+        // The wall-clock verdict may pass or fail on a loaded machine; the
+        // behavior under test is that outputs are written and the exit code is
+        // the documented pass/fail code, never an argument/IO error.
+        assert!(
+            code == ExitCode::SUCCESS || code == ExitCode::from(2),
+            "unexpected exit {code:?}: {err}"
+        );
+        assert!(stdout.contains("offline probe"), "{stdout}");
+        assert!(out.exists() && raw.exists());
     }
 }
