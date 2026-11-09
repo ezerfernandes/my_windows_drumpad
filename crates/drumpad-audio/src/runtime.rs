@@ -601,6 +601,7 @@ fn demo_temp_dir() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::StreamConfig;
     use crate::backend::FakeBackend;
     use drumpad_model::kit::RelativeSamplePath;
     use std::time::Instant;
@@ -944,5 +945,140 @@ mod tests {
         runtime.trigger(u8::MAX, u8::MAX);
         runtime.release(u8::MAX);
         runtime.panic();
+    }
+
+    #[test]
+    fn saved_shared_mode_setting_is_honored() {
+        let path = demo_temp_dir().with_extension("settings.json");
+        let settings = crate::AudioSettings {
+            share_mode: crate::ShareMode::Shared,
+            sample_rate: 44_100,
+            ..crate::AudioSettings::default()
+        };
+        crate::settings::save(&path, &settings).expect("save settings");
+        let mut runtime = MvpAudioRuntime::start_with_backend(
+            Box::new(FakeBackend::standard().with_period(Duration::from_millis(2))),
+            Some(path.clone()),
+            EngineConfig {
+                sample_rate: MVP_SAMPLE_RATE,
+                ..EngineConfig::default()
+            },
+        )
+        .expect("runtime");
+        let format = runtime.format().expect("format");
+        assert_eq!(format.share_mode, crate::ShareMode::Shared);
+        assert_eq!(format.sample_rate, MVP_SAMPLE_RATE);
+        runtime.stop();
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn start_failure_leaves_no_stale_engine_handle() {
+        let backend = FakeBackend::standard();
+        backend.set_fail_open(true);
+        let error = MvpAudioRuntime::start_with_backend(
+            Box::new(backend),
+            None,
+            EngineConfig {
+                sample_rate: MVP_SAMPLE_RATE,
+                ..EngineConfig::default()
+            },
+        )
+        .unwrap_err();
+        assert!(matches!(error, AudioError::Backend(_)), "{error}");
+    }
+
+    #[test]
+    fn wrong_negotiated_rate_is_rejected() {
+        struct RateOverride {
+            inner: FakeBackend,
+            rate: u32,
+        }
+        impl crate::AudioBackend for RateOverride {
+            fn name(&self) -> &'static str {
+                "rate-override"
+            }
+            fn list_devices(&self) -> Result<Vec<crate::DeviceInfo>, AudioError> {
+                self.inner.list_devices()
+            }
+            fn supported_configs(
+                &self,
+                device_id: &str,
+            ) -> Result<Vec<crate::backend::SupportedConfig>, AudioError> {
+                self.inner.supported_configs(device_id)
+            }
+            fn open_stream(
+                &self,
+                mut config: StreamConfig,
+                callback: Box<dyn AudioCallback>,
+            ) -> Result<crate::RenderStream, AudioError> {
+                config.sample_rate = self.rate;
+                self.inner.open_stream(config, callback)
+            }
+        }
+
+        let inner = FakeBackend::standard()
+            .with_period(Duration::from_millis(2))
+            .with_configs(vec![crate::backend::SupportedConfig {
+                sample_rate: 44_100,
+                channels: 2,
+                sample_format: crate::SampleFormat::F32,
+                share_mode: crate::ShareMode::Shared,
+                min_buffer_frames: 64,
+                max_buffer_frames: 2048,
+            }]);
+        let error = MvpAudioRuntime::start_with_backend(
+            Box::new(RateOverride {
+                inner,
+                rate: 44_100,
+            }),
+            None,
+            EngineConfig {
+                sample_rate: MVP_SAMPLE_RATE,
+                ..EngineConfig::default()
+            },
+        )
+        .unwrap_err();
+        assert!(matches!(error, AudioError::Runtime(_)), "{error}");
+    }
+
+    #[test]
+    fn started_runtime_reports_state_and_events() {
+        let mut runtime = start_fake_runtime();
+        assert!(matches!(
+            runtime.state(),
+            crate::AudioSystemState::Running { .. }
+        ));
+        let events = runtime.drain_events();
+        assert!(
+            events
+                .iter()
+                .any(|event| matches!(event, crate::AudioSystemEvent::Started(_))),
+            "start must emit a Started event for the UI"
+        );
+        assert!(runtime.snapshot().is_some());
+        assert!(runtime.engine_snapshot().is_some());
+        assert_eq!(runtime.pad_names().len(), 16);
+        assert_eq!(runtime.sample_rate(), MVP_SAMPLE_RATE);
+        let _ = runtime.tick();
+        runtime.stop();
+    }
+
+    #[test]
+    fn stopped_runtime_is_safe_to_drive() {
+        let mut runtime = start_fake_runtime();
+        let names = runtime.pad_names().to_vec();
+        runtime.stop();
+        assert!(!runtime.is_running());
+        assert!(runtime.format().is_none());
+        assert!(runtime.snapshot().is_none());
+        assert!(runtime.engine_snapshot().is_none());
+        assert_eq!(runtime.active_voices(), 0);
+        runtime.trigger(0, 100);
+        runtime.release(0);
+        runtime.panic();
+        let _ = runtime.tick();
+        let _ = runtime.drain_events();
+        assert_eq!(runtime.pad_names(), names.as_slice());
     }
 }

@@ -486,6 +486,27 @@ mod tests {
     }
 
     #[test]
+    fn system_exposes_devices_format_and_interval() {
+        let opened = Arc::new(AtomicU32::new(0));
+        let backend = FakeBackend::standard();
+        let mut system = AudioSystem::new(Box::new(backend), None, factory(opened));
+
+        assert_eq!(system.devices().unwrap().len(), 1);
+        assert!(system.format().is_none());
+        assert_eq!(system.reconnect_interval(), Duration::from_millis(250));
+        system.set_reconnect_interval(Duration::from_millis(30));
+        assert_eq!(system.reconnect_interval(), Duration::from_millis(30));
+        assert!(system.tick().is_none());
+        assert!(system.drain_events().is_empty());
+
+        system.start().unwrap();
+        assert!(system.format().is_some());
+        assert!(system.state().is_running());
+        system.stop();
+        assert!(!system.state().is_running());
+    }
+
+    #[test]
     fn snapshot_reports_running_state() {
         let opened = Arc::new(AtomicU32::new(0));
         let backend = FakeBackend::standard().with_period(Duration::from_millis(5));

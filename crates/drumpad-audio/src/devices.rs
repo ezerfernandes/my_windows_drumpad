@@ -400,4 +400,82 @@ mod tests {
         assert_eq!(default_change.as_deref(), Some("b"));
         watcher.stop();
     }
+
+    #[test]
+    fn device_states_report_usability() {
+        assert!(DeviceState::Active.is_usable());
+        for state in [
+            DeviceState::Disabled,
+            DeviceState::NotPresent,
+            DeviceState::Unplugged,
+            DeviceState::Unknown,
+        ] {
+            assert!(!state.is_usable(), "{state:?} must not be usable");
+        }
+    }
+
+    #[test]
+    fn fake_provider_round_trips_its_device_list() {
+        let provider = FakeDeviceProvider::new(vec![device("a", "Speakers", true)]);
+        assert_eq!(provider.devices().len(), 1);
+        provider.set_devices(vec![device("b", "Headset", false)]);
+        let devices = provider.list_render_devices().unwrap();
+        assert_eq!(devices.len(), 1);
+        assert_eq!(devices[0].id, "b");
+    }
+
+    #[test]
+    fn watcher_exposes_interval_and_try_recv() {
+        let provider = FakeDeviceProvider::new(vec![device("a", "Speakers", true)]);
+        let mut watcher = DeviceWatcher::spawn(Box::new(provider), Duration::from_millis(25));
+        assert_eq!(watcher.interval(), Duration::from_millis(25));
+        assert!(watcher.wait_for_baseline(Duration::from_millis(1000)));
+        assert!(watcher.try_recv().is_none());
+        watcher.stop();
+        watcher.stop(); // idempotent
+    }
+
+    #[test]
+    fn watcher_reports_provider_errors() {
+        struct FailingProvider;
+        impl DeviceProvider for FailingProvider {
+            fn list_render_devices(&self) -> Result<Vec<DeviceInfo>, AudioError> {
+                Err(AudioError::Backend("no audio service".into()))
+            }
+        }
+
+        let mut watcher =
+            DeviceWatcher::spawn(Box::new(FailingProvider), Duration::from_millis(20));
+        let event = watcher.recv_timeout(Duration::from_millis(1000));
+        assert!(
+            matches!(event, Some(DeviceEvent::Error(message)) if message.contains("no audio service"))
+        );
+        watcher.stop();
+    }
+
+    #[test]
+    fn watcher_reports_device_state_changes() {
+        let provider = FakeDeviceProvider::new(vec![device("a", "Speakers", true)]);
+        let mut watcher =
+            DeviceWatcher::spawn(Box::new(provider.clone()), Duration::from_millis(20));
+        assert!(watcher.wait_for_baseline(Duration::from_millis(1000)));
+
+        let mut unplugged = device("a", "Speakers", true);
+        unplugged.state = DeviceState::Unplugged;
+        provider.set_devices(vec![unplugged]);
+
+        let mut changed = None;
+        for _ in 0..8 {
+            match watcher.recv_timeout(Duration::from_millis(500)) {
+                Some(DeviceEvent::Changed(info)) => {
+                    changed = Some(info);
+                    break;
+                }
+                Some(_) => continue,
+                None => break,
+            }
+        }
+        assert_eq!(changed.map(|info| info.state), Some(DeviceState::Unplugged));
+        watcher.stop();
+    }
 }

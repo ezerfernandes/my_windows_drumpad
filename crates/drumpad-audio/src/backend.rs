@@ -637,18 +637,90 @@ mod tests {
     }
 
     #[test]
-    fn fail_open_is_reported() {
+    fn fake_backend_reports_devices_and_configs() {
+        let backend = FakeBackend::standard();
+        assert_eq!(backend.name(), "fake");
+        let devices = backend.list_devices().unwrap();
+        assert_eq!(devices.len(), 1);
+        assert_eq!(devices[0].id, "fake-speakers");
+        assert!(devices[0].is_default);
+
+        let configs = backend.supported_configs("fake-speakers").unwrap();
+        assert!(
+            configs
+                .iter()
+                .any(|config| config.share_mode == ShareMode::Shared)
+        );
+        assert!(
+            configs
+                .iter()
+                .any(|config| config.share_mode == ShareMode::Exclusive)
+        );
+        assert!(matches!(
+            backend.supported_configs("missing").unwrap_err(),
+            AudioError::DeviceNotFound(_)
+        ));
+    }
+
+    #[test]
+    fn missing_device_errors_are_typed_for_every_open_path() {
+        let backend = FakeBackend::standard();
+        backend.set_devices(Vec::new());
+        let error = backend.negotiate(&StreamConfig::default()).unwrap_err();
+        assert!(matches!(error, AudioError::DeviceNotFound(_)), "{error}");
+        let error = match backend.open_manual_stream(
+            StreamConfig::default(),
+            Box::new(Counter {
+                blocks: Arc::new(AtomicU32::new(0)),
+                frames: 0,
+            }),
+        ) {
+            Ok(_) => panic!("missing device must not open a stream"),
+            Err(error) => error,
+        };
+        assert!(matches!(error, AudioError::DeviceNotFound(_)), "{error}");
+    }
+
+    #[test]
+    fn manual_stream_respects_fail_open() {
         let backend = FakeBackend::standard();
         backend.set_fail_open(true);
+        let error = match backend.open_manual_stream(
+            StreamConfig::default(),
+            Box::new(Counter {
+                blocks: Arc::new(AtomicU32::new(0)),
+                frames: 0,
+            }),
+        ) {
+            Ok(_) => panic!("fail_open must not produce a stream"),
+            Err(error) => error,
+        };
+        assert!(matches!(error, AudioError::Backend(_)), "{error}");
+    }
+
+    #[test]
+    fn open_stream_rejects_an_unsupported_sample_rate() {
+        let backend = FakeBackend::standard();
         let error = backend
             .open_stream(
-                StreamConfig::default(),
+                StreamConfig {
+                    sample_rate: 96_000,
+                    ..StreamConfig::default()
+                },
                 Box::new(Counter {
                     blocks: Arc::new(AtomicU32::new(0)),
                     frames: 0,
                 }),
             )
             .unwrap_err();
-        assert!(matches!(error, AudioError::Backend(_)));
+        assert!(
+            matches!(error, AudioError::UnsupportedFormat { .. }),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn windows_backend_reports_its_name() {
+        assert_eq!(WindowsBackend.name(), "wasapi");
     }
 }

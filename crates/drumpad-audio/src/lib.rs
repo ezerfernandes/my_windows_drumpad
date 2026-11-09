@@ -128,3 +128,63 @@ impl LatencyEstimate {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn error_display_identifies_the_failure() {
+        let cases = [
+            (AudioError::NoDevice, "no audio render device"),
+            (AudioError::DeviceNotFound("dev".into()), "dev"),
+            (
+                AudioError::UnsupportedFormat {
+                    device: "Speakers".into(),
+                    request: "48000 Hz".into(),
+                },
+                "Speakers",
+            ),
+            (AudioError::DeviceLost("gone".into()), "gone"),
+            (AudioError::Backend("wasapi".into()), "wasapi"),
+            (AudioError::Io("disk".into()), "disk"),
+            (AudioError::Runtime("kit".into()), "kit"),
+            (AudioError::StreamClosed, "closed"),
+        ];
+        for (error, needle) in cases {
+            let text = error.to_string();
+            assert!(
+                text.to_ascii_lowercase()
+                    .contains(&needle.to_ascii_lowercase()),
+                "{text:?} did not contain {needle:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn io_and_json_errors_map_to_the_io_variant() {
+        let io = AudioError::from(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "missing settings",
+        ));
+        assert!(matches!(io, AudioError::Io(message) if message.contains("missing settings")));
+
+        let json = serde_json::from_str::<AudioSettings>("{ not json").unwrap_err();
+        assert!(matches!(AudioError::from(json), AudioError::Io(_)));
+    }
+
+    #[test]
+    fn latency_estimate_takes_the_largest_contribution() {
+        let buffer_bound = LatencyEstimate::from_frames(48_000, 256, 128, None);
+        assert!((buffer_bound.buffer_ms - 5.333).abs() < 0.01);
+        assert!((buffer_bound.callback_period_ms - 2.667).abs() < 0.01);
+        assert!((buffer_bound.estimated_end_to_end_ms - 5.333).abs() < 0.01);
+
+        let driver_bound = LatencyEstimate::from_frames(48_000, 128, 128, Some(12.0));
+        assert_eq!(driver_bound.estimated_end_to_end_ms, 12.0);
+
+        let zero_rate = LatencyEstimate::from_frames(0, 0, 0, None);
+        assert!(zero_rate.buffer_ms.is_finite());
+        assert_eq!(zero_rate.buffer_ms, 0.0);
+    }
+}

@@ -502,3 +502,88 @@ fn main() {
     std::fs::write(&output, serde_json::to_string_pretty(&document).unwrap()).unwrap();
     println!("\nWrote {output}");
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn config(sample_bits: u16, sample_type: &str) -> Config {
+        Config {
+            mode: "shared".into(),
+            requested_frames: 128,
+            sample_rate: 48_000,
+            channels: 2,
+            sample_bits,
+            sample_type: sample_type.into(),
+        }
+    }
+
+    #[test]
+    fn percentile_handles_empty_single_and_full_ranges() {
+        assert_eq!(percentile(&[], 0.5), 0.0);
+        assert_eq!(percentile(&[7.0], 0.5), 7.0);
+        let values: Vec<f64> = (1..=100).map(f64::from).collect();
+        assert_eq!(percentile(&values, 0.0), 1.0);
+        assert_eq!(percentile(&values, 0.5), 51.0);
+        assert_eq!(percentile(&values, 0.99), 99.0);
+        assert_eq!(percentile(&values, 1.0), 100.0);
+    }
+
+    #[test]
+    fn time_unit_helpers_round_trip_48k_frames() {
+        assert_eq!(frames_to_hns(64, 48_000), 13_333);
+        assert_eq!(frames_to_hns(128, 48_000), 26_666);
+        assert_eq!(frames_to_hns(256, 48_000), 53_333);
+        assert!((hns_to_ms(13_333) - 1.333_3).abs() < 0.001);
+        assert!((hns_to_ms(26_666) - 2.666_6).abs() < 0.001);
+        assert!((hns_to_ms(53_333) - 5.333_3).abs() < 0.001);
+    }
+
+    #[test]
+    fn make_format_distinguishes_float_and_integer() {
+        let float = make_format(&config(32, "float"));
+        assert_eq!(float.get_bitspersample(), 32);
+        assert_eq!(float.get_validbitspersample(), 32);
+        assert_eq!(float.get_nchannels(), 2);
+        assert_eq!(float.get_samplespersec(), 48_000);
+        assert_eq!(float.get_subformat().unwrap(), SampleType::Float);
+
+        let int = make_format(&config(24, "int"));
+        assert_eq!(int.get_bitspersample(), 24);
+        assert_eq!(int.get_subformat().unwrap(), SampleType::Int);
+    }
+
+    #[test]
+    fn parse_arg_finds_values_and_ignores_missing_ones() {
+        let args = vec![
+            "latency-spike".to_owned(),
+            "--seconds".to_owned(),
+            "8".to_owned(),
+            "--out".to_owned(),
+            "results.json".to_owned(),
+        ];
+        assert_eq!(parse_arg(&args, "--seconds").as_deref(), Some("8"));
+        assert_eq!(parse_arg(&args, "--out").as_deref(), Some("results.json"));
+        assert_eq!(parse_arg(&args, "--missing"), None);
+        let dangling = vec!["latency-spike".to_owned(), "--out".to_owned()];
+        assert_eq!(parse_arg(&dangling, "--out"), None);
+    }
+
+    #[test]
+    fn config_and_result_serialize_as_expected() {
+        let config = config(16, "int");
+        let json = serde_json::to_value(&config).unwrap();
+        assert_eq!(json["sample_bits"], 16);
+        assert_eq!(json["sample_type"], "int");
+
+        let result = RunResult {
+            config: Some(config),
+            ok: true,
+            callbacks: 4,
+            ..RunResult::default()
+        };
+        let json = serde_json::to_value(&result).unwrap();
+        assert_eq!(json["ok"], true);
+        assert_eq!(json["callbacks"], 4);
+    }
+}

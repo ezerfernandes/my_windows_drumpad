@@ -71,3 +71,21 @@ impl MmcssGuard {
         false
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn boosting_and_releasing_the_audio_thread_is_safe() {
+        let first = boost_audio_thread();
+        // MMCSS is available on a normal Windows desktop; on a restricted
+        // runner the guard is inert. Both are valid outcomes.
+        let _active = first.is_active();
+        drop(first);
+
+        // A later boost after the guard was released must also work.
+        let second = boost_audio_thread();
+        let _ = second.is_active();
+    }
+}

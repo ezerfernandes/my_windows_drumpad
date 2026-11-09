@@ -274,6 +274,37 @@ mod tests {
     }
 
     #[test]
+    fn settings_and_stream_config_round_trip() {
+        let settings = AudioSettings {
+            device_id: Some("endpoint".into()),
+            device_name: Some("Speakers".into()),
+            sample_rate: 44_100,
+            buffer_frames: 256,
+            share_mode: ShareMode::Exclusive,
+            low_latency_shared: false,
+            fallback_to_shared: false,
+            exclusive_bits: 24,
+            ..AudioSettings::default()
+        };
+        let config = settings.stream_config();
+        assert_eq!(config.device_id.as_deref(), Some("endpoint"));
+        assert_eq!(config.sample_rate, 44_100);
+        assert_eq!(config.buffer_frames, 256);
+        assert_eq!(config.share_mode, ShareMode::Exclusive);
+        assert!(!config.low_latency_shared);
+        assert!(!config.fallback_to_shared);
+        assert_eq!(config.exclusive_bits, 24);
+
+        let back = AudioSettings::from_stream_config(&config, Some("Speakers".into()));
+        assert_eq!(back.device_id.as_deref(), Some("endpoint"));
+        assert_eq!(back.device_name.as_deref(), Some("Speakers"));
+        assert_eq!(back.sample_rate, 44_100);
+        assert_eq!(back.buffer_frames, 256);
+        assert_eq!(back.share_mode, ShareMode::Exclusive);
+        assert_eq!(back.exclusive_bits, 24);
+    }
+
+    #[test]
     fn defaults_validate_without_warnings() {
         let mut settings = AudioSettings::default();
         assert!(settings.validate().is_empty());

@@ -783,11 +783,47 @@ mod windows {
     fn hns_to_ms(hns: i64) -> f32 {
         hns as f32 / 10_000.0
     }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn shared_period_aligns_to_the_fundamental() {
+            let periods = SharedModeEnginePeriod {
+                default: 512,
+                fundamental: 64,
+                min: 64,
+                max: 1024,
+            };
+            assert_eq!(align_period(0, &periods), 64);
+            assert_eq!(align_period(100, &periods), 128);
+            assert_eq!(align_period(128, &periods), 128);
+            assert_eq!(align_period(2000, &periods), 1024);
+
+            let fixed = SharedModeEnginePeriod {
+                default: 512,
+                fundamental: 512,
+                min: 512,
+                max: 512,
+            };
+            assert_eq!(align_period(128, &fixed), 512);
+        }
+
+        #[test]
+        fn hns_helpers_convert_frames_and_milliseconds() {
+            assert_eq!(frames_to_hns(128, 48_000), 26_666);
+            assert_eq!(frames_to_hns(256, 48_000), 53_333);
+            assert!((hns_to_ms(26_666) - 2.666_6).abs() < 0.001);
+            assert!((hns_to_ms(53_333) - 5.333_3).abs() < 0.001);
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     #[test]
     fn f32_conversion_is_little_endian() {
@@ -834,5 +870,186 @@ mod tests {
             Duration::from_micros(2700),
             Duration::from_micros(2667)
         ));
+    }
+
+    #[test]
+    fn share_mode_reports_user_facing_names() {
+        assert_eq!(ShareMode::default(), ShareMode::Shared);
+        assert_eq!(ShareMode::Shared.to_string(), "shared");
+        assert_eq!(ShareMode::Exclusive.to_string(), "exclusive");
+    }
+
+    #[test]
+    fn sample_formats_report_wire_sizes() {
+        assert_eq!(SampleFormat::F32.bytes_per_sample(), 4);
+        assert_eq!(SampleFormat::I16.bytes_per_sample(), 2);
+        assert_eq!(SampleFormat::I24.bytes_per_sample(), 3);
+        assert_eq!(SampleFormat::F32.bits(), 32);
+        assert_eq!(SampleFormat::I16.bits(), 16);
+        assert_eq!(SampleFormat::I24.bits(), 24);
+    }
+
+    #[test]
+    fn default_stream_config_is_48k_stereo_shared() {
+        let config = StreamConfig::default();
+        assert_eq!(config.sample_rate, 48_000);
+        assert_eq!(config.channels, 2);
+        assert_eq!(config.buffer_frames, 128);
+        assert_eq!(config.share_mode, ShareMode::Shared);
+        assert!(config.low_latency_shared);
+        assert!(config.fallback_to_shared);
+        assert_eq!(config.exclusive_bits, 16);
+        assert!(config.device_id.is_none());
+        assert_eq!(
+            config.format_request(),
+            "48000 Hz, 2 ch, 128 frames, shared mode"
+        );
+    }
+
+    fn test_format() -> StreamFormat {
+        StreamFormat {
+            device_id: "dev".into(),
+            device_name: "Speakers".into(),
+            sample_rate: 48_000,
+            channels: 2,
+            sample_format: SampleFormat::I16,
+            share_mode: ShareMode::Exclusive,
+            buffer_frames: 256,
+            callback_period_frames: 128,
+            stream_latency_ms: Some(3.0),
+            fell_back: false,
+            fallback_reason: None,
+        }
+    }
+
+    #[test]
+    fn stream_format_reports_period_buffer_and_latency() {
+        let format = test_format();
+        assert!((format.callback_period_ms() - 2.666_7).abs() < 0.01);
+        assert!((format.buffer_ms() - 5.333_3).abs() < 0.01);
+        assert!((format.estimated_latency_ms() - 5.333_3).abs() < 0.01);
+
+        let driver_bound = StreamFormat {
+            stream_latency_ms: Some(9.5),
+            ..test_format()
+        };
+        assert!((driver_bound.estimated_latency_ms() - 9.5).abs() < 0.01);
+
+        let without_driver = StreamFormat {
+            stream_latency_ms: None,
+            ..test_format()
+        };
+        assert!((without_driver.estimated_latency_ms() - 5.333_3).abs() < 0.01);
+    }
+
+    struct TestControl {
+        diagnostics: Arc<StreamDiagnostics>,
+        running: bool,
+        stops: Arc<AtomicUsize>,
+    }
+
+    impl StreamControl for TestControl {
+        fn stop(&mut self) {
+            self.stops.fetch_add(1, Ordering::Relaxed);
+            self.running = false;
+        }
+
+        fn is_running(&self) -> bool {
+            self.running
+        }
+
+        fn diagnostics(&self) -> &Arc<StreamDiagnostics> {
+            &self.diagnostics
+        }
+    }
+
+    #[test]
+    fn render_stream_forwards_state_and_stops_on_drop() {
+        let diagnostics = Arc::new(StreamDiagnostics::new());
+        let stops = Arc::new(AtomicUsize::new(0));
+        let format = test_format();
+        let mut stream = RenderStream::new(
+            format.clone(),
+            Box::new(TestControl {
+                diagnostics: Arc::clone(&diagnostics),
+                running: true,
+                stops: Arc::clone(&stops),
+            }),
+        );
+        assert_eq!(stream.format(), &format);
+        assert!(stream.is_running());
+        assert_eq!(stream.diagnostics().snapshot().callbacks, 0);
+        assert!(format!("{stream:?}").contains("RenderStream"));
+        stream.stop();
+        assert_eq!(stops.load(Ordering::Relaxed), 1);
+        assert!(!stream.is_running());
+        drop(stream);
+        assert_eq!(
+            stops.load(Ordering::Relaxed),
+            2,
+            "drop must stop the stream exactly once as well"
+        );
+    }
+
+    #[test]
+    fn conversions_cover_clipping_and_empty_buffers() {
+        let mut i16_out = [0u8; 4];
+        convert_f32(&mut i16_out, &[-2.0, 0.0], SampleFormat::I16);
+        assert_eq!(
+            i16::from_le_bytes(i16_out[0..2].try_into().unwrap()),
+            -i16::MAX
+        );
+        assert_eq!(i16::from_le_bytes(i16_out[2..4].try_into().unwrap()), 0);
+
+        let mut i24_out = [0u8; 3];
+        convert_f32(&mut i24_out, &[2.0], SampleFormat::I24);
+        assert_eq!(i24_out, [0xFF, 0xFF, 0x7F]);
+
+        let mut empty = [0u8; 0];
+        convert_f32(&mut empty, &[], SampleFormat::F32);
+    }
+
+    #[test]
+    fn zero_rate_formats_stay_finite() {
+        let format = StreamFormat {
+            device_id: String::new(),
+            device_name: String::new(),
+            sample_rate: 0,
+            channels: 0,
+            sample_format: SampleFormat::F32,
+            share_mode: ShareMode::Shared,
+            buffer_frames: 0,
+            callback_period_frames: 0,
+            stream_latency_ms: None,
+            fell_back: false,
+            fallback_reason: None,
+        };
+        assert_eq!(format.callback_period_ms(), 0.0);
+        assert_eq!(format.buffer_ms(), 0.0);
+        assert_eq!(format.estimated_latency_ms(), 0.0);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn opening_a_missing_device_returns_a_typed_error() {
+        struct Noop;
+        impl AudioCallback for Noop {
+            fn process(&mut self, _out: &mut [f32], _frames: usize) {}
+        }
+        let error = open_render_stream(
+            StreamConfig {
+                device_id: Some("drumpad-coverage-missing-device".into()),
+                ..StreamConfig::default()
+            },
+            Box::new(Noop),
+        )
+        .unwrap_err();
+        assert!(
+            matches!(
+                error,
+                AudioError::DeviceNotFound(_) | AudioError::Backend(_)
+            ),
+            "{error}"
+        );
     }
 }

@@ -398,6 +398,27 @@ mod tests {
     }
 
     #[test]
+    fn realtime_error_markers_are_atomic_and_readable() {
+        let diagnostics = StreamDiagnostics::new();
+        diagnostics.mark_error();
+        assert_eq!(diagnostics.state(), StreamState::Error);
+        assert_eq!(
+            diagnostics.snapshot().error.as_deref(),
+            Some("audio backend error")
+        );
+
+        diagnostics.mark_device_lost();
+        assert_eq!(diagnostics.state(), StreamState::DeviceLost);
+        assert_eq!(
+            diagnostics.snapshot().error.as_deref(),
+            Some("audio device was lost")
+        );
+
+        diagnostics.clear_error();
+        assert!(diagnostics.snapshot().error.is_none());
+    }
+
+    #[test]
     fn latency_estimate_matches_frames() {
         let estimate = LatencyEstimate::from_frames(48_000, 256, 128, Some(1.5));
         assert!((estimate.buffer_ms - 5.333).abs() < 0.01);
