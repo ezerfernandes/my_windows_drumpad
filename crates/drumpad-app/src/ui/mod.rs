@@ -16,6 +16,9 @@ pub mod theme;
 pub mod waveform;
 pub mod wizard;
 
+#[cfg(test)]
+mod coverage_tests;
+
 use std::path::PathBuf;
 
 use egui::{Align, Color32, Layout, RichText, Ui, vec2};
