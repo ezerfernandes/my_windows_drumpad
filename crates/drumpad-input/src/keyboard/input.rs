@@ -478,4 +478,47 @@ mod tests {
         assert_eq!(transport.transport(), Some(TransportAction::NextKit));
         assert!(transport.event().is_none());
     }
+
+    #[test]
+    fn release_and_ignored_actions_expose_shared_events() {
+        let mut input = keyboard();
+        input.key_down(PhysicalKey::Digit1, 1);
+        let release = input.key_up(PhysicalKey::Digit1, 2);
+        assert!(matches!(
+            release.event(),
+            Some(crate::trigger::InputEvent::Release(_))
+        ));
+        assert_eq!(release.pad(), Some(PadId::from_index(0)));
+        assert_eq!(release.transport(), None);
+        assert!(!release.is_ignored());
+
+        let ignored = input.key_up(PhysicalKey::Digit1, 3);
+        assert!(ignored.is_ignored());
+        assert_eq!(ignored.pad(), None);
+        assert_eq!(ignored.event(), None);
+    }
+
+    #[test]
+    fn accessors_reflect_the_active_map_and_velocity() {
+        let input = keyboard();
+        assert_eq!(input.map().len(), 21);
+        assert_eq!(input.velocity_config().mode.base(), Velocity::DEFAULT);
+        assert!(input.map().key_for_pad(PadId::from_index(0)).is_some());
+    }
+
+    #[test]
+    fn clear_forgets_held_keys_without_emitting_events() {
+        let mut input = keyboard();
+        input.key_down(PhysicalKey::Digit1, 1);
+        input.key_down(PhysicalKey::KeyV, 2);
+        assert_eq!(input.held_count(), 2);
+        input.clear();
+        assert_eq!(input.held_count(), 0);
+        assert!(input.release_all(3).is_empty());
+        assert_eq!(
+            input.key_up(PhysicalKey::Digit1, 4),
+            KeyboardAction::Ignored(IgnoreReason::NotHeld)
+        );
+        assert!(!input.key_down(PhysicalKey::Digit1, 5).is_ignored());
+    }
 }

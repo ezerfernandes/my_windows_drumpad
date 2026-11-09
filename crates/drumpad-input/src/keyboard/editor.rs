@@ -428,4 +428,52 @@ mod tests {
             Err(ProfileError::UnsupportedSchemaVersion { .. })
         ));
     }
+
+    #[test]
+    fn disarm_and_policy_accessors_reflect_editor_state() {
+        let mut editor = MappingEditor::new();
+        assert_eq!(editor.armed(), None);
+        assert_eq!(editor.policy(), ConflictPolicy::Reject);
+        editor.arm(pad(4));
+        assert_eq!(editor.armed(), Some(pad(4)));
+        editor.set_policy(ConflictPolicy::Replace);
+        assert_eq!(editor.policy(), ConflictPolicy::Replace);
+        editor.disarm();
+        assert_eq!(editor.armed(), None);
+    }
+
+    #[test]
+    fn default_library_is_the_builtin_set() {
+        assert_eq!(ProfileLibrary::default(), ProfileLibrary::with_builtins());
+    }
+
+    #[test]
+    fn library_json_without_schema_version_uses_the_current_one() {
+        let library = ProfileLibrary::with_builtins();
+        let mut value = serde_json::to_value(&library).unwrap();
+        value.as_object_mut().unwrap().remove("schema_version");
+        let restored: ProfileLibrary = serde_json::from_value(value).unwrap();
+        assert_eq!(restored.schema_version, PROFILE_SCHEMA_VERSION);
+        assert_eq!(restored, library);
+    }
+
+    #[test]
+    fn missing_files_and_directories_report_io_errors() {
+        let directory = tempfile::tempdir().unwrap();
+        let missing = directory.path().join("missing-profiles.json");
+        assert!(matches!(
+            ProfileLibrary::load_from_path(&missing),
+            Err(ProfileError::Io { .. })
+        ));
+
+        let library = ProfileLibrary::with_builtins();
+        let bad_target = directory
+            .path()
+            .join("no-such-directory")
+            .join("profiles.json");
+        assert!(matches!(
+            library.save_to_path(&bad_target),
+            Err(ProfileError::Io { .. })
+        ));
+    }
 }

@@ -278,4 +278,31 @@ mod tests {
             config
         );
     }
+
+    #[test]
+    fn config_without_sensitivity_defaults_to_no_offsets() {
+        let config: KeyboardVelocityConfig =
+            serde_json::from_str(r#"{"mode":{"mode":"fixed","settings":100}}"#).unwrap();
+        assert_eq!(config.pad_sensitivity, [0; PAD_COUNT]);
+        for pad in PadId::ALL {
+            assert_eq!(config.sensitivity(pad), 0);
+        }
+    }
+
+    #[test]
+    fn generator_exposes_and_updates_its_configuration() {
+        let mut generator = VelocityGenerator::default();
+        assert_eq!(
+            generator.config().mode,
+            VelocityMode::Fixed(Velocity::DEFAULT)
+        );
+        assert_eq!(generator.velocity_for(pad(0)), Velocity::DEFAULT);
+
+        let custom =
+            KeyboardVelocityConfig::new(VelocityMode::humanized(Velocity::new(60).unwrap(), 4));
+        generator.set_config(custom);
+        assert_eq!(generator.config(), &custom);
+        let velocity = generator.velocity_for(pad(0)).get();
+        assert!((56..=64).contains(&velocity), "{velocity} left 56..=64");
+    }
 }

@@ -350,4 +350,12 @@ mod tests {
         let json = serde_json::to_string(&other).unwrap();
         assert_eq!(serde_json::from_str::<PhysicalKey>(&json).unwrap(), other);
     }
+
+    #[test]
+    fn unknown_keys_use_a_scan_label() {
+        let key = PhysicalKey::Other(0x1E);
+        assert_eq!(key.label(), "Scan");
+        assert_eq!(key.display_name(), "Scan 30");
+        assert_eq!(PhysicalKey::Digit1.display_name(), "1");
+    }
 }

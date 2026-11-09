@@ -804,4 +804,141 @@ mod tests {
         };
         assert_eq!(conflict.describe(), "pad 3 is assigned to 3 and Scan 4");
     }
+
+    #[test]
+    fn transport_actions_expose_stable_labels_and_ids() {
+        let expected = [
+            (TransportAction::Panic, "Panic", "panic"),
+            (
+                TransportAction::ToggleMetronome,
+                "Metronome",
+                "toggle_metronome",
+            ),
+            (TransportAction::PreviousKit, "Previous kit", "previous_kit"),
+            (TransportAction::NextKit, "Next kit", "next_kit"),
+            (
+                TransportAction::ShowMapOverlay,
+                "Map overlay",
+                "show_map_overlay",
+            ),
+        ];
+        for (action, label, id) in expected {
+            assert_eq!(action.label(), label);
+            assert_eq!(action.as_str(), id);
+            assert_eq!(action.to_string(), label);
+        }
+        assert_eq!(TransportAction::ALL.len(), expected.len());
+    }
+
+    #[test]
+    fn key_action_display_names_pads_and_transports() {
+        assert_eq!(KeyAction::pad(pad(0)).to_string(), "pad 1");
+        assert_eq!(
+            KeyAction::transport(TransportAction::NextKit).to_string(),
+            "Next kit"
+        );
+        assert_eq!(KeyAction::pad(pad(0)).as_pad(), Some(pad(0)));
+        assert_eq!(KeyAction::pad(pad(0)).as_transport(), None);
+        assert_eq!(
+            KeyAction::transport(TransportAction::Panic).as_transport(),
+            Some(TransportAction::Panic)
+        );
+    }
+
+    #[test]
+    fn conflict_descriptions_cover_key_and_transport_variants() {
+        let key_conflict = MappingConflict::Key {
+            key: PhysicalKey::Digit1,
+            actions: vec![
+                KeyAction::pad(pad(0)),
+                KeyAction::transport(TransportAction::Panic),
+            ],
+        };
+        let description = key_conflict.describe();
+        assert!(description.starts_with("1 is assigned to pad 1 and Panic"));
+        assert_eq!(key_conflict.to_string(), description);
+
+        let transport_conflict = MappingConflict::Transport {
+            action: TransportAction::NextKit,
+            keys: vec![PhysicalKey::F4, PhysicalKey::Other(9)],
+        };
+        assert_eq!(
+            transport_conflict.describe(),
+            "Next kit is assigned to F4 and Scan 9"
+        );
+    }
+
+    #[test]
+    fn key_for_returns_the_bound_key() {
+        let profile = KeyboardProfile::default_full_keyboard();
+        assert_eq!(
+            profile.key_for(KeyAction::transport(TransportAction::ShowMapOverlay)),
+            Some(PhysicalKey::F5)
+        );
+        assert_eq!(
+            profile.key_for(KeyAction::pad(pad(0))),
+            Some(PhysicalKey::Digit1)
+        );
+        assert_eq!(
+            profile.key_for(KeyAction::pad(pad(0))),
+            Some(PhysicalKey::Digit1)
+        );
+    }
+
+    #[test]
+    fn one_hand_profile_reset_restores_the_finding_bindings() {
+        let mut profile = KeyboardProfile::finding_35_key();
+        profile.unbind(PhysicalKey::Digit1);
+        profile.set_binding(
+            PhysicalKey::Other(0x70),
+            KeyAction::transport(TransportAction::Panic),
+        );
+        profile.reset_to_default();
+        assert_eq!(profile, KeyboardProfile::finding_35_key());
+    }
+
+    #[test]
+    fn empty_profile_is_rejected_with_no_conflicts() {
+        let profile = KeyboardProfile {
+            schema_version: PROFILE_SCHEMA_VERSION,
+            id: "empty".to_owned(),
+            name: "Empty".to_owned(),
+            device: ProfileDevice::FullKeyboard,
+            bindings: Vec::new(),
+            unmapped: Vec::new(),
+        };
+        let error = profile.validate().unwrap_err();
+        assert!(matches!(error, ProfileError::Empty { .. }));
+        assert!(error.conflicts().is_empty());
+        assert!(!profile.is_valid());
+    }
+
+    #[test]
+    fn default_profile_is_the_full_keyboard() {
+        assert_eq!(
+            KeyboardProfile::default(),
+            KeyboardProfile::default_full_keyboard()
+        );
+    }
+
+    #[test]
+    fn profile_json_without_schema_version_uses_the_current_one() {
+        let profile = KeyboardProfile::finding_35_key();
+        let mut value = serde_json::to_value(&profile).unwrap();
+        value.as_object_mut().unwrap().remove("schema_version");
+        let restored = KeyboardProfile::from_json(&value.to_string()).unwrap();
+        assert_eq!(restored.schema_version, PROFILE_SCHEMA_VERSION);
+        assert_eq!(restored, profile);
+    }
+
+    #[test]
+    fn key_actions_round_trip_through_json() {
+        for action in [
+            KeyAction::pad(pad(7)),
+            KeyAction::transport(TransportAction::PreviousKit),
+        ] {
+            let json = serde_json::to_string(&action).unwrap();
+            assert_eq!(serde_json::from_str::<KeyAction>(&json).unwrap(), action);
+        }
+    }
 }
