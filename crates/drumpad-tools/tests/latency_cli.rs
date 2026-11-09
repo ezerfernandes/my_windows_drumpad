@@ -282,6 +282,13 @@ fn proxy_fails_closed_when_the_app_request_was_never_measured() {
     let message = stderr(&output);
     assert!(message.contains("was never measured on"), "{message}");
     assert!(message.contains("Test Endpoint"), "{message}");
+    // The safety property is that no number is printed when the evidence
+    // cannot rank the request: a stale metric must never look like a result.
+    assert!(
+        stdout(&output).is_empty(),
+        "fail-closed must print no metric, got {:?}",
+        stdout(&output)
+    );
 }
 
 #[test]
@@ -340,8 +347,15 @@ fn proxy_prints_one_number_and_writes_a_machine_readable_record() {
         serde_json::from_str(&std::fs::read_to_string(&record_path).expect("record file"))
             .expect("record is JSON");
     assert_eq!(record["schema_version"], 1);
-    assert_eq!(record["sample_rate"], 48_000);
-    assert_eq!(record["requested_frames"], 128);
+    assert_eq!(
+        record["sample_rate"],
+        u64::from(drumpad_audio::runtime::MVP_SAMPLE_RATE)
+    );
+    assert_eq!(
+        record["requested_frames"],
+        drumpad_audio::runtime::MVP_BLOCK_FRAMES as u64,
+        "the proxy must request the block size the MVP runtime pins"
+    );
     assert_eq!(record["hits"], 200, "100 warm-up hits must be discarded");
     assert_eq!(
         record["mode"].as_str().expect("mode"),
@@ -760,5 +774,51 @@ fn report_escapes_pipes_in_evidence_text_so_the_table_stays_valid() {
     assert!(
         text.contains("Desk\\|Bench"),
         "a pipe in the machine name must be escaped: {text}"
+    );
+}
+
+#[test]
+fn report_renders_the_negotiated_mode_for_measured_and_pending_rows() {
+    // The committed baseline records every row in shared mode: one measured
+    // offline row and three pending reference rows.
+    let output = run(
+        REPORT,
+        &[committed_baseline().to_str().expect("utf-8 path")],
+    );
+    assert_eq!(exit_code(&output), 0, "{}", stderr(&output));
+    let text = stdout(&output);
+    let data_rows: Vec<&str> = text
+        .lines()
+        .filter(|line| line.starts_with("| measured") || line.starts_with("| pending"))
+        .collect();
+    assert!(!data_rows.is_empty(), "no data rows in {text}");
+    assert!(
+        data_rows.iter().all(|row| row.contains("| shared |")),
+        "every committed row was measured in shared mode: {text}"
+    );
+
+    // One exclusive and one shared row, so a constant in the Mode column
+    // cannot satisfy the contract.
+    let dir = tempfile::tempdir().expect("temp dir");
+    let mut exclusive = measured_row("Exclusive Bench", true);
+    exclusive["hardware"]["audio_mode"] = json!("exclusive");
+    let mut shared = measured_row("Shared Bench", true);
+    shared["hardware"]["audio_mode"] = json!("shared");
+    let path = write_json(
+        dir.path(),
+        "modes.json",
+        &baseline_report(vec![exclusive, shared]),
+    );
+
+    let output = run(REPORT, &[path.to_str().expect("utf-8 path")]);
+    assert_eq!(exit_code(&output), 0, "{}", stderr(&output));
+    let text = stdout(&output);
+    assert!(
+        text.contains("| exclusive |"),
+        "the exclusive row must render its mode: {text}"
+    );
+    assert!(
+        text.contains("| shared |"),
+        "the shared row must render its mode: {text}"
     );
 }
