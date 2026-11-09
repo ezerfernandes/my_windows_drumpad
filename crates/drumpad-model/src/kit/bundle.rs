@@ -403,8 +403,10 @@ pub fn export_active_kit(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::kit::format::to_json_pretty;
     use crate::kit::{ContentHash, Kit, Layer, RelativeSamplePath, SampleRef};
     use std::fs;
+    use std::io::Write;
 
     fn make_kit(dir: &Path) -> Kit {
         let mut kit = Kit::silent_default();
@@ -532,5 +534,197 @@ mod tests {
         fs::write(dest.join("existing.txt"), b"x").unwrap();
         let error = ensure_destination(&dest).unwrap_err();
         assert!(matches!(error, BundleError::DestinationExists(_)));
+    }
+
+    #[test]
+    fn export_carries_license_and_credits_and_creates_parents() {
+        let work = tempfile::tempdir().unwrap();
+        let kit_dir = work.path().join("source");
+        fs::create_dir_all(&kit_dir).unwrap();
+        let kit = make_kit(&kit_dir);
+        fs::write(kit_dir.join("LICENSES.md"), b"license text").unwrap();
+        fs::write(kit_dir.join("CREDITS.md"), b"credit text").unwrap();
+
+        let bundle = work.path().join("nested/deeper/bundle");
+        let report = export_kit_folder(&kit, &kit_dir, &bundle).unwrap();
+        assert_eq!(report.samples_copied, 1);
+        assert_eq!(
+            fs::read(bundle.join("LICENSES.md")).unwrap(),
+            b"license text"
+        );
+        assert_eq!(fs::read(bundle.join("CREDITS.md")).unwrap(), b"credit text");
+
+        let archive = work.path().join("archives/kit.zip");
+        export_kit_archive(&kit, &kit_dir, &archive).unwrap();
+        let file = fs::File::open(&archive).unwrap();
+        let mut zip = zip::ZipArchive::new(file).unwrap();
+        let names: Vec<String> = (0..zip.len())
+            .map(|index| zip.by_index(index).unwrap().name().to_owned())
+            .collect();
+        assert!(names.contains(&"kit.json".to_owned()));
+        assert!(names.contains(&"samples/kick.wav".to_owned()));
+        assert!(names.contains(&"LICENSES.md".to_owned()));
+        assert!(names.contains(&"CREDITS.md".to_owned()));
+    }
+
+    #[test]
+    fn import_rejects_a_missing_manifest() {
+        let work = tempfile::tempdir().unwrap();
+        let src = work.path().join("empty");
+        fs::create_dir_all(&src).unwrap();
+        let error = import_kit_folder(&src, &work.path().join("dest")).unwrap_err();
+        assert!(matches!(error, BundleError::InvalidBundle(_)));
+    }
+
+    #[test]
+    fn import_rejects_a_manifest_that_fails_validation() {
+        let work = tempfile::tempdir().unwrap();
+        let src = work.path().join("invalid");
+        fs::create_dir_all(&src).unwrap();
+        let mut kit = Kit::silent_default();
+        kit.pads[0].pan = 2.0;
+        fs::write(src.join(MANIFEST), to_json_pretty(&kit).unwrap()).unwrap();
+        let error = import_kit_folder(&src, &work.path().join("dest")).unwrap_err();
+        assert!(matches!(error, BundleError::Validation(_)));
+    }
+
+    #[test]
+    fn import_dedupes_case_insensitive_identical_samples() {
+        let work = tempfile::tempdir().unwrap();
+        let src = work.path().join("bundle");
+        fs::create_dir_all(src.join("samples")).unwrap();
+        let audio = b"same bytes";
+        fs::write(src.join("samples/hit.wav"), audio).unwrap();
+        let hash = ContentHash::of_bytes(audio);
+        let mut kit = Kit::silent_default();
+        for (slot, path) in [(0, "Samples/Hit.wav"), (1, "samples/hit.wav")] {
+            kit.pads[slot].layers.push(Layer::with_sample(
+                Default::default(),
+                SampleRef::new(RelativeSamplePath::new(path).unwrap(), hash),
+            ));
+        }
+        fs::write(src.join(MANIFEST), to_json_pretty(&kit).unwrap()).unwrap();
+
+        let dest = work.path().join("imported");
+        let report = import_kit_folder(&src, &dest).unwrap();
+        assert_eq!(report.samples_copied, 1);
+        assert!(report.missing.is_empty());
+        let first = report.kit.pads[0].layers[0]
+            .sample
+            .as_ref()
+            .unwrap()
+            .path
+            .clone();
+        let second = report.kit.pads[1].layers[0]
+            .sample
+            .as_ref()
+            .unwrap()
+            .path
+            .clone();
+        assert_eq!(first, second);
+        assert!(first.resolve(&dest).is_file());
+    }
+
+    #[test]
+    fn import_rejects_a_nonempty_destination() {
+        let work = tempfile::tempdir().unwrap();
+        let src = work.path().join("source");
+        fs::create_dir_all(&src).unwrap();
+        let kit = make_kit(&src);
+        let bundle = work.path().join("bundle");
+        export_kit_folder(&kit, &src, &bundle).unwrap();
+        let dest = work.path().join("dest");
+        fs::create_dir_all(&dest).unwrap();
+        fs::write(dest.join("occupied.txt"), b"x").unwrap();
+        let error = import_kit_folder(&bundle, &dest).unwrap_err();
+        assert!(matches!(error, BundleError::DestinationExists(_)));
+    }
+
+    #[test]
+    fn collision_paths_without_extension_advance_to_a_free_attempt() {
+        let kit = Kit::silent_default();
+        let hash = ContentHash::of_bytes(b"content");
+        let suffix = &hash.to_hex()[..8];
+        let mut destinations = BTreeMap::new();
+        let original = RelativeSamplePath::new("sample").unwrap();
+        destinations.insert(
+            "sample".to_owned(),
+            (original, ContentHash::of_bytes(b"first")),
+        );
+        destinations.insert(
+            format!("sample-{suffix}"),
+            (
+                RelativeSamplePath::new(format!("sample-{suffix}")).unwrap(),
+                ContentHash::of_bytes(b"second"),
+            ),
+        );
+        let resolved = collision_path("sample", &hash, &destinations, &kit);
+        assert_eq!(resolved.as_str(), format!("sample-{suffix}-1"));
+    }
+
+    #[test]
+    fn archive_import_rejects_unsafe_entries() {
+        use zip::write::SimpleFileOptions;
+
+        let work = tempfile::tempdir().unwrap();
+        let archive = work.path().join("unsafe.zip");
+        let file = fs::File::create(&archive).unwrap();
+        let mut writer = zip::ZipWriter::new(file);
+        let options = SimpleFileOptions::default();
+        writer.start_file("../escape.wav", options).unwrap();
+        writer.write_all(b"escape").unwrap();
+        writer.finish().unwrap();
+
+        let error = import_kit_archive(&archive, &work.path().join("dest")).unwrap_err();
+        assert!(matches!(error, BundleError::UnsafeEntry(_)));
+    }
+
+    #[test]
+    fn archive_import_skips_directory_entries() {
+        use zip::write::SimpleFileOptions;
+
+        let work = tempfile::tempdir().unwrap();
+        let kit = make_kit(&work.path().join("source"));
+        let manifest = to_json_pretty(&kit).unwrap();
+        let archive = work.path().join("dirs.zip");
+        let file = fs::File::create(&archive).unwrap();
+        let mut writer = zip::ZipWriter::new(file);
+        let options = SimpleFileOptions::default();
+        writer.start_file("samples/", options).unwrap();
+        writer.start_file("kit.json", options).unwrap();
+        writer.write_all(manifest.as_bytes()).unwrap();
+        writer.start_file("samples/kick.wav", options).unwrap();
+        writer.write_all(b"RIFF....fake-wav-data").unwrap();
+        writer.finish().unwrap();
+
+        let report = import_kit_archive(&archive, &work.path().join("imported")).unwrap();
+        assert!(report.missing.is_empty());
+        assert!(work.path().join("imported/samples/kick.wav").is_file());
+    }
+
+    #[test]
+    fn export_active_kit_exports_the_library_kit() {
+        use crate::kit::KitLibrary;
+
+        let work = tempfile::tempdir().unwrap();
+        let mut library = KitLibrary::open(work.path().join("library")).unwrap();
+        let mut kit = library.create("Active Export").unwrap();
+        let kit_dir = library.kit_dir(kit.id).unwrap();
+        fs::create_dir_all(kit_dir.join("samples")).unwrap();
+        fs::write(kit_dir.join("samples/kick.wav"), b"active bytes").unwrap();
+        kit.pads[0].layers.push(Layer::with_sample(
+            Default::default(),
+            SampleRef::new(
+                RelativeSamplePath::new("samples/kick.wav").unwrap(),
+                ContentHash::of_bytes(b"active bytes"),
+            ),
+        ));
+        library.save(&mut kit).unwrap();
+
+        let dest = work.path().join("exported");
+        let report = export_active_kit(&library, &dest).unwrap();
+        assert_eq!(report.kit_id, kit.id);
+        assert!(dest.join("kit.json").is_file());
+        assert!(dest.join("samples/kick.wav").is_file());
     }
 }

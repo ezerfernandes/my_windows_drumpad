@@ -209,4 +209,20 @@ mod tests {
             Err(DemoError::AlreadyInstalled(_))
         ));
     }
+
+    #[test]
+    fn missing_embedded_names_return_none() {
+        assert!(demo_sample_bytes("samples/kick.wav").is_some());
+        assert!(demo_sample_bytes("samples/nope.wav").is_none());
+        assert!(demo_sample_bytes("").is_none());
+    }
+
+    #[test]
+    fn install_reports_an_unusable_destination() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("already-a-file");
+        std::fs::write(&file, b"not a folder").unwrap();
+        let error = install_demo_kit(&file).unwrap_err();
+        assert!(matches!(error, DemoError::Io { .. }));
+    }
 }

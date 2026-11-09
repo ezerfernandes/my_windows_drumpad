@@ -1109,4 +1109,189 @@ mod tests {
         let notes: std::collections::BTreeSet<_> = DEFAULT_PAD_MIDI_NOTES.iter().copied().collect();
         assert_eq!(notes.len(), PAD_COUNT);
     }
+
+    #[test]
+    fn id_newtypes_expose_bounds_display_and_serde() {
+        let choke = ChokeGroup::new(3).unwrap();
+        assert_eq!(choke.index(), 3);
+        assert_eq!(choke.to_string(), "3");
+        assert_eq!(serde_json::to_string(&choke).unwrap(), "3");
+        assert_eq!(serde_json::from_str::<ChokeGroup>("3").unwrap(), choke);
+        assert!(serde_json::from_str::<ChokeGroup>("16").is_err());
+        assert_eq!(ChokeGroup::default(), ChokeGroup::new(0).unwrap());
+
+        let note = MidiNote::new(127).unwrap();
+        assert_eq!(note.index(), 127);
+        assert_eq!(note.to_string(), "127");
+        assert_eq!(serde_json::from_str::<MidiNote>("127").unwrap(), note);
+        assert!(serde_json::from_str::<MidiNote>("128").is_err());
+        assert_eq!(MidiNote::default(), MidiNote::new(0).unwrap());
+
+        assert_eq!(LayerId::new(7).to_string(), "7");
+        assert_eq!(LayerId::default(), LayerId::FIRST);
+
+        let channel = MidiChannel::new(16).unwrap();
+        assert_eq!(channel.index(), 15);
+        assert_eq!(MidiChannel::default().get(), 1);
+        assert_eq!(serde_json::from_str::<MidiChannel>("16").unwrap(), channel);
+        assert!(serde_json::from_str::<MidiChannel>("0").is_err());
+        assert!(serde_json::from_str::<MidiChannel>("17").is_err());
+    }
+
+    #[test]
+    fn kit_ids_parse_round_trip_and_reject_invalid_text() {
+        let id = KitId::new();
+        let text = id.as_string();
+        assert_eq!(text, id.to_string());
+        assert_eq!(KitId::parse(&text).unwrap(), id);
+        assert_eq!(text.parse::<KitId>().unwrap(), id);
+        assert!(KitId::parse("not-a-uuid").is_err());
+        assert!(serde_json::from_str::<KitId>("\"not-a-uuid\"").is_err());
+        assert_eq!(
+            serde_json::from_str::<KitId>(&serde_json::to_string(&id).unwrap()).unwrap(),
+            id
+        );
+        assert_ne!(KitId::default(), KitId::default());
+    }
+
+    #[test]
+    fn content_hashes_support_raw_files_hex_and_serde() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sample.bin");
+        std::fs::write(&path, b"content").unwrap();
+        let from_file = ContentHash::of_file(&path).unwrap();
+        assert_eq!(from_file, ContentHash::of_bytes(b"content"));
+        assert!(ContentHash::of_file(&dir.path().join("missing.bin")).is_err());
+
+        let bytes = [7u8; 32];
+        let hash = ContentHash::from_bytes(bytes);
+        assert_eq!(hash.as_bytes(), &bytes);
+        assert_eq!(ContentHash::from_hex(&hash.to_hex()).unwrap(), hash);
+        assert_eq!(hash.to_string(), hash.to_hex());
+        assert!(ContentHash::from_hex("short").is_err());
+        assert!(ContentHash::from_hex(&"z".repeat(64)).is_err());
+        assert!(serde_json::from_str::<ContentHash>(&format!("\"{}\"", "z".repeat(64))).is_err());
+        assert_eq!(
+            serde_json::from_str::<ContentHash>(&serde_json::to_string(&hash).unwrap()).unwrap(),
+            hash
+        );
+    }
+
+    #[test]
+    fn relative_paths_reject_reserved_and_root_components() {
+        for bad in [
+            "CON.wav",
+            "samples/PRN.wav",
+            ".",
+            "/",
+            "\\\\server\\share\\kick.wav",
+        ] {
+            assert!(
+                RelativeSamplePath::new(bad).is_err(),
+                "expected {bad:?} to be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn physical_keys_expose_labels_and_serde() {
+        let one = PhysicalKey::from_scancode(0x02);
+        assert_eq!(one.raw(), 0x02);
+        assert_eq!(one.label(), Some("1"));
+        assert_eq!(PhysicalKey::from_raw(0x3B).label(), Some("F1"));
+        assert_eq!(PhysicalKey::from_raw(0x99).label(), None);
+        assert_eq!(
+            PhysicalKey::from_extended_scancode(0x48).raw(),
+            PhysicalKey::EXTENDED | 0x48
+        );
+        assert_eq!(PhysicalKey::from_extended_scancode(0x48).label(), None);
+        assert_eq!(
+            serde_json::from_str::<PhysicalKey>(&serde_json::to_string(&one).unwrap()).unwrap(),
+            one
+        );
+        assert_eq!(
+            KeyMapping::default_for(0),
+            Some(KeyMapping::new(PhysicalKey::from_scancode(0x02)))
+        );
+        assert_eq!(KeyMapping::default_for(16), None);
+    }
+
+    #[test]
+    fn velocity_loops_and_samples_expose_their_ranges() {
+        let range = VelocityRange::new(10, 20).unwrap();
+        assert!(range.contains(10));
+        assert!(range.contains(20));
+        assert!(!range.contains(9));
+        assert!(!range.contains(21));
+        assert_eq!(VelocityRange::default(), VelocityRange::FULL);
+
+        let loop_points = SampleLoop::new(10, 20).unwrap();
+        assert_eq!(loop_points.len(), 10);
+        assert!(!loop_points.is_empty());
+
+        let sample = SampleRef::new(
+            RelativeSamplePath::new("samples/kick.wav").unwrap(),
+            ContentHash::of_bytes(b"kick"),
+        );
+        assert_eq!(sample.hash, Some(ContentHash::of_bytes(b"kick")));
+        assert_eq!(
+            sample.resolve(Path::new("kit")),
+            Path::new("kit").join("samples/kick.wav")
+        );
+    }
+
+    #[test]
+    fn kit_helpers_find_pads_layers_and_distinct_samples() {
+        let mut kit = Kit::silent_default();
+        assert!(kit.pad_at_mut(0).is_some());
+        assert!(kit.pad_at_mut(99).is_none());
+        assert!(kit.pad_at(99).is_none());
+        let pad_id = kit.pads[0].id;
+        let key = kit.pads[0].key.unwrap().key;
+        let midi = kit.pads[0].midi.unwrap();
+        assert_eq!(kit.pad_for_key(key).unwrap().id, pad_id);
+        assert_eq!(
+            kit.pad_for_midi(midi.note, midi.channel).unwrap().id,
+            pad_id
+        );
+        assert_eq!(kit.first_empty_pad(), Some(PadId::new(0).unwrap()));
+        assert_eq!(kit.next_free_pad_id(), None);
+        assert_eq!(kit.pad_mut(PadId::new(0).unwrap()).unwrap().id, pad_id);
+        assert!(kit.pad_mut(PadId::new(0).unwrap()).is_some());
+
+        let mut partial = Kit::new("Partial");
+        partial.pads.truncate(3);
+        assert_eq!(partial.next_free_pad_id(), Some(PadId::new(3).unwrap()));
+        assert_eq!(
+            partial.next_free_layer_id(PadId::new(0).unwrap()),
+            LayerId::FIRST
+        );
+        partial.pads[0].layers.push(Layer::silent(LayerId::new(1)));
+        partial.pads[0].layers.push(Layer::silent(LayerId::new(3)));
+        assert_eq!(
+            partial.next_free_layer_id(PadId::new(0).unwrap()),
+            LayerId::new(2)
+        );
+
+        let sample = SampleRef::new(
+            RelativeSamplePath::new("samples/shared.wav").unwrap(),
+            ContentHash::of_bytes(b"shared"),
+        );
+        partial.pads[0].layers[0].sample = Some(sample.clone());
+        partial.pads[1]
+            .layers
+            .push(Layer::with_sample(LayerId::FIRST, sample));
+        assert_eq!(partial.samples().len(), 1);
+        assert_eq!(
+            partial.pads[1].first_sample().unwrap().path.as_str(),
+            "samples/shared.wav"
+        );
+
+        partial.touch(1_700_000_000_000);
+        assert_eq!(partial.metadata.created_unix_ms, Some(1_700_000_000_000));
+        assert_eq!(partial.metadata.modified_unix_ms, Some(1_700_000_000_000));
+        partial.touch(1_700_000_000_001);
+        assert_eq!(partial.metadata.created_unix_ms, Some(1_700_000_000_000));
+        assert_eq!(partial.metadata.modified_unix_ms, Some(1_700_000_000_001));
+    }
 }

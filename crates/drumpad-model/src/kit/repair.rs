@@ -465,4 +465,114 @@ mod tests {
         // Keep the helper referenced so the import stays intentional.
         let _ = ContentHash::of_bytes(b"x");
     }
+
+    #[test]
+    fn repair_normalizes_metadata_and_oversized_collections() {
+        let mut kit = Kit::silent_default();
+        kit.format_version = 0;
+        kit.metadata.name = format!("  {}  ", "n".repeat(140));
+        kit.metadata.author = Some("a".repeat(140));
+        kit.metadata.description = Some("d".repeat(4_100));
+        kit.metadata.tags = (0..34)
+            .map(|index| {
+                if index == 0 {
+                    "t".repeat(40)
+                } else {
+                    format!("tag-{index}")
+                }
+            })
+            .collect();
+        kit.pads[0].name = Some("p".repeat(80));
+        kit.pads.push(Pad::silent(PadId::new(15).unwrap()));
+
+        let report = repair_kit(&mut kit);
+        assert_eq!(kit.format_version, CURRENT_FORMAT_VERSION);
+        assert_eq!(kit.metadata.name.chars().count(), 128);
+        assert_eq!(kit.metadata.author.as_ref().unwrap().chars().count(), 128);
+        assert_eq!(
+            kit.metadata.description.as_ref().unwrap().chars().count(),
+            4_096
+        );
+        assert_eq!(kit.metadata.tags.len(), 32);
+        assert_eq!(kit.metadata.tags[0].chars().count(), 32);
+        assert_eq!(kit.pads.len(), PAD_COUNT);
+        assert_eq!(kit.pads[0].name.as_ref().unwrap().chars().count(), 64);
+        for path in [
+            "format_version",
+            "metadata.name",
+            "metadata.tags",
+            "metadata.tags[0]",
+            "pads",
+            "pads[0].name",
+        ] {
+            assert!(
+                report.actions.iter().any(|action| action.path == path),
+                "missing repair action for {path}: {:#?}",
+                report.actions
+            );
+        }
+        assert!(report.is_valid());
+    }
+
+    #[test]
+    fn repair_fixes_layers_velocity_loops_and_mapping_conflicts() {
+        use crate::kit::{LayerId, SampleLoop};
+
+        let mut kit = Kit::silent_default();
+        let mut layers: Vec<Layer> = (0..33)
+            .map(|index| Layer::silent(LayerId::new(index as u32 + 1)))
+            .collect();
+        layers[0].velocity = VelocityRange { min: 0, max: 200 };
+        layers[1].id = layers[0].id;
+        layers[2].loop_points = Some(SampleLoop {
+            start_frame: 10,
+            end_frame: 10,
+        });
+        layers[3].gain_db = -100.0;
+        layers[3].tune_cents = 3_000.0;
+        kit.pads[0].layers = layers;
+
+        kit.pads[1].key = kit.pads[0].key;
+        kit.pads[1].midi = kit.pads[0].midi;
+        kit.pads[2].key = None;
+        kit.pads[2].midi = None;
+        kit.pads[3].key = Some(KeyMapping::new(PhysicalKey::from_scancode(0x04)));
+        kit.pads[3].midi = Some(MidiMapping::on_channel_1(MidiNote::new(40).unwrap()));
+
+        let report = repair_kit(&mut kit);
+        assert_eq!(kit.pads[0].layers.len(), MAX_LAYERS_PER_PAD);
+        assert_eq!(kit.pads[0].layers[0].velocity.min, 1);
+        assert_eq!(kit.pads[0].layers[0].velocity.max, 127);
+        assert_eq!(kit.pads[0].layers[3].gain_db, -60.0);
+        assert_eq!(kit.pads[0].layers[3].tune_cents, 2_400.0);
+        assert!(kit.pads[0].layers[2].loop_points.is_none());
+        let layer_ids: std::collections::BTreeSet<_> =
+            kit.pads[0].layers.iter().map(|layer| layer.id).collect();
+        assert_eq!(layer_ids.len(), MAX_LAYERS_PER_PAD);
+
+        for path in [
+            "pads[0].layers",
+            "pads[0].layers[0].velocity",
+            "pads[0].layers[1].id",
+            "pads[0].layers[2].loop_points",
+            "pads[0].layers[3].gain_db",
+            "pads[0].layers[3].tune_cents",
+            "pads[1].key",
+            "pads[1].midi",
+        ] {
+            assert!(
+                report.actions.iter().any(|action| action.path == path),
+                "missing repair action for {path}: {:#?}",
+                report.actions
+            );
+        }
+        assert!(kit.pads[1].key.is_some());
+        assert!(kit.pads[1].midi.is_some());
+        // A missing mapping is left empty when its slot default is already
+        // taken; that is a warning, not an invariant violation.
+        assert!(kit.pads[2].key.is_none());
+        assert!(kit.pads[2].midi.is_none());
+        assert!(report.is_valid(), "{:#?}", report.remaining);
+        assert!(kit.validate().is_ok());
+    }
 }

@@ -324,4 +324,77 @@ mod tests {
         let error = migrate_value(value).unwrap_err();
         assert!(matches!(error, MigrationError::InvalidLegacy { .. }));
     }
+
+    #[test]
+    fn v0_carries_mix_values_and_drops_out_of_range_slots() {
+        let mut value = legacy_document();
+        value["pads"][0]["gain_db"] = serde_json::json!(-3.0);
+        value["pads"][0]["pan"] = serde_json::json!(0.25);
+        value["pads"][0]["midi_channel"] = serde_json::json!(4);
+        value["pads"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({"slot": 16, "sample_path": "samples/ignored.wav"}));
+        value["pads"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({"slot": 2, "sample_path": "samples/hat.wav"}));
+
+        let (kit, report) = migrate_value(value).unwrap();
+        assert_eq!(kit.pads[0].gain_db, -3.0);
+        assert_eq!(kit.pads[0].pan, 0.25);
+        assert_eq!(kit.pads[0].midi.unwrap().channel.get(), 4);
+        assert_eq!(
+            kit.pads[2].layers[0].sample.as_ref().unwrap().path.as_str(),
+            "samples/hat.wav"
+        );
+        assert_eq!(kit.pads[2].layers[0].sample.as_ref().unwrap().hash, None);
+        assert!(
+            report
+                .changes
+                .iter()
+                .any(|change| change.contains("dropped legacy pad slot 16"))
+        );
+        assert!(
+            report
+                .changes
+                .iter()
+                .any(|change| change.contains("converted 3"))
+        );
+    }
+
+    #[test]
+    fn empty_legacy_name_falls_back_to_a_default() {
+        let (kit, _) = migrate_value(serde_json::json!({
+            "version": 0,
+            "name": "   ",
+            "pads": []
+        }))
+        .unwrap();
+        assert_eq!(kit.metadata.name, "Migrated Kit");
+    }
+
+    #[test]
+    fn malformed_legacy_documents_are_rejected() {
+        let error = migrate_value(serde_json::json!({
+            "version": 0,
+            "pads": "not-an-array"
+        }))
+        .unwrap_err();
+        assert!(matches!(error, MigrationError::InvalidLegacy { .. }));
+
+        let error = migrate_value(serde_json::json!({
+            "version": 0,
+            "pads": [{"slot": 0, "midi_note": 200}]
+        }))
+        .unwrap_err();
+        assert!(error.to_string().contains("MIDI note"));
+
+        let error = migrate_value(serde_json::json!({
+            "version": 0,
+            "pads": [{"slot": 0, "midi_note": 36, "midi_channel": 0}]
+        }))
+        .unwrap_err();
+        assert!(error.to_string().contains("MIDI channel"));
+    }
 }
