@@ -16,6 +16,14 @@ pub fn routes_to_pads(modifiers: ModifiersState) -> bool {
     !(modifiers.control_key() || modifiers.alt_key() || modifiers.super_key())
 }
 
+/// Keys the shell deliberately swallows before egui sees them.
+///
+/// `Tab` is a performance-UI no-op for now: it must not move keyboard focus
+/// away from the window while the player is triggering pads.
+pub fn swallows_before_egui(key: KeyCode) -> bool {
+    matches!(key, KeyCode::Tab)
+}
+
 /// Map a key press to an action, if it is a global shortcut.
 ///
 /// Returns `None` for plain keys that belong to the pad profile.
@@ -91,6 +99,14 @@ mod tests {
 
     fn none() -> ModifiersState {
         ModifiersState::empty()
+    }
+
+    #[test]
+    fn tab_is_a_noop_before_egui_but_pad_and_transport_keys_are_not() {
+        assert!(swallows_before_egui(KeyCode::Tab));
+        assert!(!swallows_before_egui(KeyCode::Digit1));
+        assert!(!swallows_before_egui(KeyCode::KeyQ));
+        assert!(!swallows_before_egui(KeyCode::F5));
     }
 
     fn ctrl() -> ModifiersState {

@@ -1203,7 +1203,15 @@ impl ApplicationHandler<UserEvent> for AppShell {
                 self.update_fit_zoom();
             }
             WindowEvent::KeyboardInput { event, .. } => {
+                let swallow = matches!(
+                    event.physical_key,
+                    PhysicalKey::Code(key) if crate::app::hotkeys::swallows_before_egui(key)
+                );
                 self.keyboard(event);
+                if swallow {
+                    // Deliberate no-op: do not let egui move focus on Tab.
+                    return;
+                }
             }
             WindowEvent::ModifiersChanged(modifiers) => {
                 self.modifiers = modifiers.state();
