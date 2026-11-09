@@ -373,3 +373,190 @@ fn clicking_a_pad_in_the_4x4_surface_triggers_the_same_index() {
         "a click inside the 4x4 grid should trigger a pad"
     );
 }
+#[test]
+fn the_kit_browser_renders_search_empty_loading_and_failure_states() {
+    let mut state = AppState::new(UiPreferences::default());
+    state.navigation.go(View::KitBrowser);
+    let preferences = UiPreferences::default();
+    let mut ui = UiRoot::new(&preferences);
+    let ctx = egui::Context::default();
+
+    state.kits.set_search("nothing-matches");
+    run(&ctx, &mut state, &mut ui, input(vec![]));
+    state.kits.set_search("");
+    run(&ctx, &mut state, &mut ui, input(vec![]));
+
+    let active = state.kits.active().expect("active");
+    state.kits.start_load(active);
+    state.kits.set_load_progress(40);
+    run(&ctx, &mut state, &mut ui, input(vec![]));
+
+    state
+        .kits
+        .finish_load(active, Err("kick.wav is missing".to_owned()));
+    run(&ctx, &mut state, &mut ui, input(vec![]));
+    assert!(matches!(
+        state.kits.load_status(),
+        crate::state::kit::LoadStatus::Failed { .. }
+    ));
+}
+
+#[test]
+fn the_kit_browser_renders_the_new_kit_and_sample_folder_fields() {
+    let mut state = AppState::new(UiPreferences::default());
+    state.navigation.go(View::KitBrowser);
+    let preferences = UiPreferences::default();
+    let mut ui = UiRoot::new(&preferences);
+    ui.local_mut().new_kit_name = "Imported".to_owned();
+    ui.local_mut().sample_folder = "D:\\Samples".to_owned();
+    let ctx = egui::Context::default();
+    run(&ctx, &mut state, &mut ui, input(vec![]));
+    assert_eq!(ui.local().new_kit_name, "Imported");
+}
+
+#[test]
+fn the_settings_view_renders_restart_reasons_and_a_validation_error() {
+    let mut preferences = UiPreferences::default();
+    preferences.appearance.theme = crate::state::prefs::ThemeChoice::HighContrast;
+    preferences.appearance.reduce_motion = true;
+    let mut state = AppState::new(preferences.clone());
+    state.navigation.go(View::Settings);
+    state.settings.draft_mut().audio.sample_rate = 96_000;
+    state.settings.draft_mut().appearance.scale = 4.0;
+    assert!(state.settings.apply().is_err());
+    assert!(state.settings.last_error().is_some());
+    assert!(!state.settings.restart_reasons().is_empty());
+
+    let mut ui = UiRoot::new(&preferences);
+    let ctx = egui::Context::default();
+    run(&ctx, &mut state, &mut ui, input(vec![]));
+    run(&ctx, &mut state, &mut ui, input(vec![]));
+    assert_eq!(ui.theme(), &super::theme::Theme::high_contrast());
+}
+
+#[test]
+fn right_clicking_a_pad_selects_it_without_triggering() {
+    let mut state = AppState::new(UiPreferences::default());
+    state.pads.select(PadId::new(8));
+    let preferences = UiPreferences::default();
+    let mut ui = UiRoot::new(&preferences);
+    let ctx = egui::Context::default();
+    run(&ctx, &mut state, &mut ui, input(vec![]));
+
+    let position = pos2(120.0, 180.0);
+    let events = vec![
+        Event::PointerMoved(position),
+        Event::PointerButton {
+            pos: position,
+            button: PointerButton::Secondary,
+            pressed: true,
+            modifiers: Default::default(),
+        },
+        Event::PointerButton {
+            pos: position,
+            button: PointerButton::Secondary,
+            pressed: false,
+            modifiers: Default::default(),
+        },
+    ];
+    let actions = run(&ctx, &mut state, &mut ui, input(events));
+    assert!(
+        actions
+            .iter()
+            .any(|action| matches!(action, Action::SelectPad(_))),
+        "right-click should select the pad"
+    );
+    assert!(
+        !actions
+            .iter()
+            .any(|action| matches!(action, Action::TriggerPad { .. })),
+        "right-click must not trigger a voice"
+    );
+}
+
+#[test]
+fn the_unsaved_changes_prompt_renders_as_a_blocking_dialog() {
+    let mut state = AppState::new(UiPreferences::default());
+    state.kits.set_dirty(true);
+    crate::app::actions::dispatch(&mut state, Action::CreateKit("Two".to_owned()));
+    let two = state
+        .kits
+        .kits()
+        .iter()
+        .find(|kit| kit.name == "Two")
+        .expect("two")
+        .id;
+    crate::app::actions::dispatch(&mut state, Action::LoadKit(two));
+    assert!(state.notifications.dialog().is_some());
+
+    let preferences = UiPreferences::default();
+    let mut ui = UiRoot::new(&preferences);
+    let ctx = egui::Context::default();
+    run(&ctx, &mut state, &mut ui, input(vec![]));
+    run(&ctx, &mut state, &mut ui, input(vec![]));
+    assert!(!state.notifications.dialog().expect("dialog").dismissible);
+}
+
+#[test]
+fn the_shortcut_cheat_sheet_and_status_audio_summary_render() {
+    let mut state = AppState::new(UiPreferences::default());
+    state.set_audio_status(crate::state::AudioStatus {
+        device: "Speakers".to_owned(),
+        sample_rate: 48_000,
+        buffer_frames: 128,
+        share_mode: Some(drumpad_audio::ShareMode::Shared),
+        running: true,
+        voices: 3,
+        detail: None,
+    });
+    let preferences = UiPreferences::default();
+    let mut ui = UiRoot::new(&preferences);
+    ui.local_mut().show_shortcuts = true;
+    let ctx = egui::Context::default();
+    run(&ctx, &mut state, &mut ui, input(vec![]));
+    assert!(ui.local().show_shortcuts);
+    assert!(state.status().audio.contains("Speakers"));
+}
+
+#[test]
+fn performance_mode_keeps_the_editing_chrome_hidden() {
+    let mut state = AppState::new(UiPreferences::default());
+    state.navigation.go(View::Performance);
+    let preferences = UiPreferences::default();
+    let mut ui = UiRoot::new(&preferences);
+    let ctx = egui::Context::default();
+    run(&ctx, &mut state, &mut ui, input(vec![]));
+    assert!(state.navigation.is_performance());
+    assert!(ui.local().grid_cells.is_some());
+}
+
+#[test]
+fn the_editor_panel_renders_with_selection_loop_and_fades() {
+    let mut state = state_with_editor();
+    {
+        let editor = state.editor.as_mut().expect("editor");
+        let base = editor.current().clone();
+        let mut params = base.clone();
+        params.loop_enabled = true;
+        params.loop_start = 0.2;
+        params.loop_end = 0.6;
+        params.loop_crossfade = 0.01;
+        params.fade_in = 0.01;
+        params.fade_out = 0.01;
+        params.reverse = true;
+        params.normalize = true;
+        params.pitch_semitones = 1.0;
+        editor.commit("Show every control", params).expect("commit");
+    }
+    state.waveform.begin_selection(1.0, 0.2);
+    state.waveform.extend_selection(1.0, 0.5);
+    state.waveform.finish_selection();
+    state.waveform.playhead = Some(0.35);
+
+    let preferences = UiPreferences::default();
+    let mut ui = UiRoot::new(&preferences);
+    let ctx = egui::Context::default();
+    run(&ctx, &mut state, &mut ui, input(vec![]));
+    run(&ctx, &mut state, &mut ui, input(vec![]));
+    assert!(state.waveform.selection.is_some());
+}

@@ -969,4 +969,397 @@ mod tests {
         );
         assert_eq!(effects, vec![Effect::OpenLogFolder]);
     }
+
+    #[test]
+    fn pad_release_and_pad_preview_route_to_the_engine() {
+        let mut state = state();
+        assert_eq!(
+            dispatch(&mut state, Action::ReleasePad(PadId::new(4))),
+            vec![Effect::Release { pad: PadId::new(4) }]
+        );
+
+        // A pad with no layers cannot be auditioned.
+        let effects = dispatch(
+            &mut state,
+            Action::PreviewPad {
+                pad: PadId::new(1),
+                velocity: 100,
+            },
+        );
+        assert!(effects.is_empty());
+        assert!(
+            state
+                .notifications
+                .toasts()
+                .iter()
+                .any(|toast| toast.message.contains("no layer"))
+        );
+
+        // Give the selected pad a layer and audition it.
+        state.inspector.draft_mut().layers = vec![crate::state::inspector::LayerSpec::full_range(
+            Some("snare.wav".to_owned()),
+        )];
+        let effects = dispatch(
+            &mut state,
+            Action::PreviewPad {
+                pad: PadId::new(0),
+                velocity: 100,
+            },
+        );
+        assert!(matches!(
+            effects.as_slice(),
+            [Effect::Trigger {
+                velocity: 100,
+                ..
+            }] if matches!(effects.first(), Some(Effect::Trigger { pad, .. }) if pad.index() == 0)
+        ));
+    }
+
+    #[test]
+    fn navigation_guards_and_performance_exit_preserve_state() {
+        let mut state = state();
+        dispatch(&mut state, Action::Navigate(View::Settings));
+        assert_eq!(state.navigation.current(), View::Settings);
+        dispatch(&mut state, Action::Navigate(View::Performance));
+        assert!(state.navigation.is_performance());
+        dispatch(&mut state, Action::ExitPerformance);
+        assert_eq!(state.navigation.current(), View::Settings);
+
+        // A dirty editor parks the navigation behind the unsaved prompt.
+        state.navigation.go(View::Edit);
+        state.kits.set_dirty(true);
+        dispatch(&mut state, Action::Navigate(View::KitBrowser));
+        assert_eq!(state.navigation.current(), View::Edit);
+        assert_eq!(state.navigation.pending_view(), Some(View::KitBrowser));
+        dispatch(
+            &mut state,
+            Action::ChooseDialog(DialogIntent::DiscardChanges),
+        );
+        assert_eq!(state.navigation.current(), View::KitBrowser);
+    }
+
+    #[test]
+    fn kit_search_rename_and_delete_emit_durable_requests() {
+        let mut state = state();
+        dispatch(&mut state, Action::SetKitSearch("drum".to_owned()));
+        assert_eq!(state.kits.search(), "drum");
+
+        dispatch(&mut state, Action::CreateKit("Rock".to_owned()));
+        let rock = state
+            .kits
+            .kits()
+            .iter()
+            .find(|kit| kit.name == "Rock")
+            .expect("rock")
+            .id;
+        let effects = dispatch(
+            &mut state,
+            Action::RenameKit {
+                kit: rock,
+                name: "Metal".to_owned(),
+            },
+        );
+        assert_eq!(effects, vec![Effect::Kit(KitRequest::Rename(rock))]);
+
+        let metal = state
+            .kits
+            .kits()
+            .iter()
+            .find(|kit| kit.name == "Metal")
+            .expect("metal")
+            .id;
+        let effects = dispatch(&mut state, Action::DeleteKit(metal));
+        assert_eq!(effects, vec![Effect::Kit(KitRequest::Delete(metal))]);
+        assert!(!state.kits.kits().iter().any(|kit| kit.name == "Metal"));
+    }
+
+    #[test]
+    fn deleting_the_active_dirty_kit_asks_before_discarding() {
+        let mut state = state();
+        dispatch(&mut state, Action::CreateKit("Two".to_owned()));
+        let two = state
+            .kits
+            .kits()
+            .iter()
+            .find(|kit| kit.name == "Two")
+            .expect("two")
+            .id;
+        dispatch(&mut state, Action::LoadKit(two));
+        state.kits.finish_load(two, Ok(()));
+        state.kits.set_dirty(true);
+
+        let effects = dispatch(&mut state, Action::DeleteKit(two));
+        assert!(effects.is_empty());
+        assert!(state.notifications.dialog().is_some());
+        assert_eq!(
+            state.kits.pending(),
+            Some(crate::state::kit::PendingAction::Delete(two))
+        );
+
+        let effects = dispatch(
+            &mut state,
+            Action::ChooseDialog(DialogIntent::DiscardChanges),
+        );
+        assert_eq!(effects, vec![Effect::Kit(KitRequest::Delete(two))]);
+    }
+
+    #[test]
+    fn next_and_previous_kit_requests_wrap_the_catalogue() {
+        let mut state = state();
+        dispatch(&mut state, Action::CreateKit("Two".to_owned()));
+        let effects = dispatch(&mut state, Action::NextKit);
+        let loaded = match effects.as_slice() {
+            [Effect::Kit(KitRequest::Load(id))] => *id,
+            other => panic!("expected a kit load, got {other:?}"),
+        };
+        state.kits.finish_load(loaded, Ok(()));
+
+        let effects = dispatch(&mut state, Action::PreviousKit);
+        assert!(matches!(
+            effects.as_slice(),
+            [Effect::Kit(KitRequest::Load(_))]
+        ));
+    }
+
+    #[test]
+    fn save_confirm_and_cancel_pending_kit_actions() {
+        let mut state = state();
+        let effects = dispatch(&mut state, Action::SaveActiveKit);
+        assert_eq!(
+            effects,
+            vec![Effect::Kit(KitRequest::Save(
+                state.kits.active().expect("active")
+            ))]
+        );
+        assert!(!state.kits.has_unsaved_changes());
+
+        let first = state.kits.active().expect("active");
+        dispatch(&mut state, Action::CreateKit("Two".to_owned()));
+        let two = state
+            .kits
+            .kits()
+            .iter()
+            .find(|kit| kit.name == "Two")
+            .expect("two")
+            .id;
+        let effects = dispatch(&mut state, Action::LoadKit(two));
+        assert_eq!(effects, vec![Effect::Kit(KitRequest::Load(two))]);
+        state.kits.finish_load(two, Ok(()));
+
+        state.kits.set_dirty(true);
+        dispatch(&mut state, Action::LoadKit(first));
+        assert!(state.kits.pending().is_some());
+        dispatch(&mut state, Action::CancelPendingKit);
+        assert_eq!(state.kits.pending(), None);
+
+        state.kits.set_dirty(true);
+        dispatch(&mut state, Action::LoadKit(first));
+        let effects = dispatch(&mut state, Action::ConfirmPendingKit);
+        assert_eq!(effects, vec![Effect::Kit(KitRequest::Load(first))]);
+    }
+
+    #[test]
+    fn inspector_revert_reset_and_settings_revert_restore_drafts() {
+        let mut state = state();
+        state.inspector.draft_mut().volume_db = -12.0;
+        dispatch(&mut state, Action::RevertInspector);
+        assert_eq!(state.inspector.draft().volume_db, 0.0);
+
+        state.inspector.draft_mut().sample = Some("kick.wav".to_owned());
+        dispatch(&mut state, Action::ResetInspector);
+        assert_eq!(state.inspector.draft().sample, None);
+
+        state.settings.draft_mut().audio.sample_rate = 96_000;
+        dispatch(&mut state, Action::RevertSettings);
+        assert_eq!(state.settings.draft().audio.sample_rate, 48_000);
+    }
+
+    #[test]
+    fn editor_actions_without_a_session_are_no_ops() {
+        let mut state = state();
+        assert!(dispatch(&mut state, Action::UndoEdit).is_empty());
+        assert!(dispatch(&mut state, Action::RedoEdit).is_empty());
+        assert!(dispatch(&mut state, Action::ResetEdit).is_empty());
+        assert!(
+            dispatch(
+                &mut state,
+                Action::CommitEdit {
+                    label: "Gain".to_owned(),
+                    params: Box::new(crate::state::editor::EditParams::default()),
+                }
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn wizard_back_reopen_close_and_finish() {
+        let mut state = state();
+        dispatch(&mut state, Action::WizardNext);
+        assert_eq!(
+            state.wizard.step(),
+            crate::state::wizard::WizardStep::Keyboard
+        );
+        dispatch(&mut state, Action::WizardBack);
+        assert_eq!(
+            state.wizard.step(),
+            crate::state::wizard::WizardStep::Welcome
+        );
+        dispatch(&mut state, Action::WizardSkip);
+        assert_eq!(
+            state.wizard.step(),
+            crate::state::wizard::WizardStep::Keyboard
+        );
+        dispatch(&mut state, Action::WizardReopen);
+        assert!(state.wizard.is_reopened());
+        dispatch(&mut state, Action::WizardClose);
+        assert!(!state.wizard.is_active());
+
+        state.wizard.reopen();
+        let effects = dispatch(&mut state, Action::WizardFinish);
+        assert!(matches!(
+            effects.as_slice(),
+            [Effect::PersistPreferences(_)]
+        ));
+        assert!(!state.wizard.is_active());
+        assert!(state.settings.draft().wizard_completed);
+    }
+
+    #[test]
+    fn drop_confirm_cancel_and_undo_preserve_pad_state() {
+        let mut state = state();
+        let temp = tempfile::tempdir().expect("temp");
+        dispatch(
+            &mut state,
+            Action::BeginDrop {
+                paths: vec![temp.path().join("kick.wav")],
+                target: Some(PadId::new(5)),
+            },
+        );
+        assert!(state.dragdrop.is_confirming());
+        dispatch(&mut state, Action::CancelDrop);
+        assert!(!state.dragdrop.is_confirming());
+        assert_eq!(state.pads.get(PadId::new(5)).sample, None);
+
+        dispatch(
+            &mut state,
+            Action::BeginDrop {
+                paths: vec![temp.path().join("kick.wav")],
+                target: Some(PadId::new(5)),
+            },
+        );
+        dispatch(&mut state, Action::ConfirmDrop);
+        assert_eq!(
+            state.pads.get(PadId::new(5)).sample.as_deref(),
+            Some("kick.wav")
+        );
+        dispatch(&mut state, Action::UndoDrop);
+        assert_eq!(state.pads.get(PadId::new(5)).sample, None);
+        dispatch(&mut state, Action::UndoDrop);
+        assert!(
+            state
+                .notifications
+                .toasts()
+                .iter()
+                .any(|toast| toast.message.contains("no drop"))
+        );
+    }
+
+    #[test]
+    fn escape_and_enter_follow_the_dialog_overlay_performance_precedence() {
+        let mut state = state();
+
+        // Dialog first.
+        state.notifications.error(
+            "T",
+            "m",
+            crate::state::notifications::DialogAction::new(DialogIntent::Dismiss),
+        );
+        dispatch(&mut state, Action::Escape);
+        assert!(state.notifications.dialog().is_none());
+
+        // Then the map overlay.
+        state.performance.set_overlay(true);
+        dispatch(&mut state, Action::Escape);
+        assert!(!state.performance.overlay_visible());
+
+        // Then performance mode itself.
+        state.navigation.go(View::Performance);
+        dispatch(&mut state, Action::Escape);
+        assert!(!state.navigation.is_performance());
+
+        // Enter confirms a pending drop.
+        let temp = tempfile::tempdir().expect("temp");
+        dispatch(
+            &mut state,
+            Action::BeginDrop {
+                paths: vec![temp.path().join("snare.wav")],
+                target: Some(PadId::new(1)),
+            },
+        );
+        dispatch(&mut state, Action::Confirm);
+        assert!(!state.dragdrop.is_confirming());
+        assert_eq!(
+            state.pads.get(PadId::new(1)).sample.as_deref(),
+            Some("snare.wav")
+        );
+    }
+
+    #[test]
+    fn dialog_intents_open_settings_relink_reload_and_crash_folder() {
+        for (intent, expected) in [
+            (DialogIntent::OpenSettings, None),
+            (DialogIntent::RelinkSamples, Some(Effect::RelinkSamples)),
+            (DialogIntent::OpenCrashFolder, Some(Effect::OpenCrashFolder)),
+        ] {
+            let mut state = state();
+            state.notifications.error(
+                "T",
+                "m",
+                crate::state::notifications::DialogAction::new(intent),
+            );
+            let effects = dispatch(&mut state, Action::ChooseDialog(intent));
+            if let Some(expected) = expected {
+                assert_eq!(effects, vec![expected]);
+            } else {
+                assert_eq!(state.navigation.current(), View::Settings);
+            }
+            assert!(state.notifications.dialog().is_none());
+        }
+
+        let mut state = state();
+        state.kits.finish_load(
+            state.kits.active().expect("active"),
+            Err("missing".to_owned()),
+        );
+        state.notifications.error(
+            "T",
+            "m",
+            crate::state::notifications::DialogAction::new(DialogIntent::Retry),
+        );
+        let effects = dispatch(&mut state, Action::ChooseDialog(DialogIntent::Retry));
+        assert!(matches!(
+            effects.as_slice(),
+            [Effect::Kit(KitRequest::Load(_))]
+        ));
+    }
+
+    #[test]
+    fn a_kit_load_failure_is_surfaced_as_a_retryable_dialog() {
+        let mut state = state();
+        state.report_load_failure("kick.wav is missing");
+        let dialog = state.notifications.dialog().expect("dialog");
+        assert!(dialog.action(DialogIntent::Retry).is_some());
+        assert!(dialog.action(DialogIntent::Dismiss).is_some());
+        // Retry parks the request in the failed load state.
+        let active = state.kits.active().expect("active");
+        state
+            .kits
+            .finish_load(active, Err("kick.wav is missing".to_owned()));
+        let effects = dispatch(&mut state, Action::ChooseDialog(DialogIntent::Retry));
+        assert!(matches!(
+            effects.as_slice(),
+            [Effect::Kit(KitRequest::Load(_))]
+        ));
+    }
 }
