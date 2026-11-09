@@ -243,17 +243,24 @@ fn write_atomic_cleans_up_when_the_rename_fails() {
     let target_directory = temp.path().join("target-is-a-directory");
     fs::create_dir(&target_directory).expect("create target directory");
 
+    let entries = || {
+        let mut names: Vec<String> = fs::read_dir(temp.path())
+            .expect("read temp dir")
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    };
+    let before = entries();
+
     let error =
         write_atomic(&target_directory, b"data").expect_err("renaming over a directory must fail");
     assert!(matches!(error, Error::Io { .. }), "unexpected {error:?}");
 
-    let leftovers: Vec<_> = fs::read_dir(temp.path())
-        .expect("read temp dir")
-        .filter_map(|entry| entry.ok())
-        .filter(|entry| entry.file_name().to_string_lossy().ends_with(".tmp"))
-        .collect();
-    assert!(
-        leftovers.is_empty(),
-        "failed writes must clean up temporary files"
+    assert_eq!(
+        entries(),
+        before,
+        "failed writes must leave the directory unchanged"
     );
 }
